@@ -86,7 +86,7 @@ docs/                          架構圖 (draw.io) 與產生腳本
 ```
 照片 → 前處理 (analysis/preprocess.py)
         1. EXIF 轉正、縮圖
-        2. MediaPipe 偵測 478 個臉部特徵點 (沒有模型檔時改用 OpenCV Haar)
+        2. MediaPipe 偵測 478 個臉部特徵點 (必要；OpenCV 4 環境下才有 Haar 備援，OpenCV 5 已移除)
         3. 依雙眼連線轉正、裁切、縮放到寬 600px  ← 所有量測在同一尺度才能比較
         4. Shades-of-Gray 白平衡 (降低燈光色偏)、CLAHE 對比增強
         5. 自適應膚色模型 → 皮膚遮罩，排除頭髮眼眉嘴
