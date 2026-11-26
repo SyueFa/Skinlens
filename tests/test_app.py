@@ -2,6 +2,7 @@
 執行：uv run python -m pytest -q tests  (或 uv run python tests/test_app.py)"""
 import os, sys, glob, io
 from pathlib import Path
+from PIL import Image as PILImage
 os.environ["MONGO_DB"] = "skinlens_test"
 os.environ["ADMIN_EMAIL"] = "admin@test.local"
 os.environ["ADMIN_PASSWORD"] = "admin-pass-123"
@@ -40,6 +41,10 @@ def run():
     check(c.post("/api/analyze", data={}).status_code == 400, "沒附檔案 400")
     r = c.post("/api/analyze", data={"file": (io.BytesIO(b"not an image"), "x.jpg")})
     check(r.status_code == 422, f"非圖片檔 422 ({r.status_code} {r.get_json()})")
+    blank = io.BytesIO()
+    PILImage.new("RGB", (640, 480), (180, 170, 160)).save(blank, "JPEG"); blank.seek(0)
+    r = c.post("/api/analyze", data={"file": (blank, "blank.jpg")})
+    check(r.status_code == 422 and "偵測不到臉部" in r.get_json()["error"], f"沒有臉的圖片 422 + 提示 ({r.status_code} {r.get_json()})")
     r = c.post("/api/analyze", data={"file": (open(FACE, "rb"), "face.jpg"), "age": "30"})
     d = r.get_json()
     check(r.status_code == 200 and len(d["indicators"]) == 6 and d["unavailable"], f"一般光源分析 6 項可見光指標 + UV 提示 ({r.status_code})")
