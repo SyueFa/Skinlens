@@ -1,6 +1,6 @@
 """下載 MediaPipe 臉部特徵點模型 (face_landmarker.task, 約 3.7MB) 到 models/。
 
-有它會用 478 個臉部特徵點精準切區；沒有的話自動改用內附的 OpenCV Haar 偵測 (能跑，但分區較粗)。
+網站必須有這個模型才能偵測臉部 (OpenCV 5 已移除 Haar 偵測，只有 OpenCV 4 環境才有備援)。
 用法：uv run python scripts/download_models.py
 """
 import sys, urllib.request
