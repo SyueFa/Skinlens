@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from skimage.filters import frangi
-from . import chromophore
+from . import chromophore, wrinkle_seg
 from skimage.measure import label, regionprops
 
 # 疊圖顏色 (BGR)
@@ -41,6 +41,13 @@ CALIB = {
 _CALIB_FILE = Path(__file__).resolve().parent.parent.parent / "models" / "calib.json"
 if _CALIB_FILE.exists():
     CALIB.update({k: tuple(v) for k, v in json.loads(_CALIB_FILE.read_text(encoding="utf-8"))["calib"].items()})
+
+# AI 皺紋分割的計分：和 FFHQ-Wrinkle 人工答案完全相同的換算 (scripts/import_ffhq_wrinkle.py 產生)
+_WRINKLE_LABEL_FILE = _CALIB_FILE.parent / "wrinkle_label.json"
+WRINKLE_SEG_CALIB = None
+if _WRINKLE_LABEL_FILE.exists():
+    _w = json.loads(_WRINKLE_LABEL_FILE.read_text(encoding="utf-8"))
+    WRINKLE_SEG_CALIB = (_w["mid"], _w["scale"], _w["eps"])
 
 
 def logistic(x, mid, scale):
@@ -81,8 +88,8 @@ def _area_pct(m, rm, area):
     return 100 * m.sum() / area
 
 
-def _pack(name, raw, count, mask, regions, by_region_fn=_area_pct, extra=None):
-    mid, sc, *log_eps = CALIB[name]
+def _pack(name, raw, count, mask, regions, by_region_fn=_area_pct, extra=None, calib=None):
+    mid, sc, *log_eps = calib or CALIB[name]
     x = np.log(raw + log_eps[0]) if log_eps else raw     # 校準檔可指定在對數尺度上計算 (右偏分布)
     return {"raw": round(float(raw), 3), "severity": round(logistic(x, mid, sc), 1), "count": int(count),
             "mask": mask, "by_region": _by_region(mask, regions, by_region_fn), **(extra or {})}
@@ -133,7 +140,27 @@ def detect_red_areas(pp):
 
 
 def detect_wrinkles(pp):
-    """皺紋：Frangi 脊線濾波找暗色細長線條，只在易長皺紋的區域 (額頭、眉間、魚尾、眼下、法令紋)。"""
+    """皺紋：有 AI 模型 (U-Net) 就用它畫出的皺紋線計分，否則用傳統 Frangi 濾波。"""
+    if wrinkle_seg.available() and WRINKLE_SEG_CALIB is not None:
+        return _detect_wrinkles_unet(pp)
+    return _detect_wrinkles_frangi(pp)
+
+
+def _detect_wrinkles_unet(pp):
+    """U-Net 畫出皺紋線 → 皺紋量 = 線條像素 ÷ 臉寬² (和人工答案同公式、同換算)。
+    FFHQ-Wrinkle 測試組：Dice 0.618 (Frangi 0.108)，皺紋量和人工相關 0.87。"""
+    reg = pp["regions"]
+    mask = wrinkle_seg.predict_mask(pp["face"])
+    kp = pp["kp"]
+    face_w = max(float(kp["face_r"][0] - kp["face_l"][0]), 1.0)
+    raw = float(mask.sum()) / face_w ** 2
+    n, _ = cv2.connectedComponents(mask.astype(np.uint8))
+    return _pack("wrinkles", raw, n - 1, mask, reg, calib=WRINKLE_SEG_CALIB,
+                 by_region_fn=lambda m, rm, area: 1000 * m.sum() / area, extra={"method": "unet"})
+
+
+def _detect_wrinkles_frangi(pp):
+    """傳統方法：Frangi 脊線濾波找暗色細長線條，只在易長皺紋的區域 (額頭、眉間、魚尾、眼下、法令紋)。"""
     reg = pp["regions"]
     zone = np.zeros(pp["skin"].shape, bool)
     for k in ("forehead", "glabella", "crow_l", "crow_r", "under_eye", "nasolabial"):
@@ -147,7 +174,7 @@ def detect_wrinkles(pp):
     from skimage.morphology import skeletonize
     skel = skeletonize(mask)
     raw = 1000 * skel.sum() / max(zone.sum(), 1)
-    return _pack("wrinkles", raw, n, mask, reg,
+    return _pack("wrinkles", raw, n, mask, reg, extra={"method": "frangi"},
                  by_region_fn=lambda m, rm, area: 1000 * skeletonize(m).sum() / area)
 
 

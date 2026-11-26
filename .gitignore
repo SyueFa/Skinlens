@@ -11,6 +11,7 @@ data/
 models/*.joblib
 models/*.pt
 models/face_landmarker.task
+models/*.onnx
 
 # 課程教材與評分資料 (不公開)
 informations/

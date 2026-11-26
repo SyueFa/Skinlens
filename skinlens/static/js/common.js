@@ -110,7 +110,8 @@ const SL = (() => {
                   ${i.percentile != null ? `同齡百分位：贏過 ${i.percentile}% 的同齡者 · ` : ""}
                   ${i.count ? `偵測到 ${i.count} 處 · ` : ""}
                   ${i.worst_regions?.length ? `較明顯的位置：${i.worst_regions.map(r => REGIONS[r] || r).join("、")} · ` : ""}
-                  ${i.source === "model" ? `<span class="sl-source-model"><i class="bi bi-patch-check"></i> 已用 AI 模型校正</span>`
+                  ${i.source === "ai_seg" ? `<span class="sl-source-model"><i class="bi bi-stars"></i> AI 皺紋分割 (U-Net)：圖上標示的線由 AI 畫出</span>`
+                    : i.source === "model" ? `<span class="sl-source-model"><i class="bi bi-patch-check"></i> 已用 AI 模型校正</span>`
                     : i.experimental ? `<span class="text-secondary"><i class="bi bi-exclamation-diamond"></i> 實驗性：尚未經人工標註校正，僅供參考</span>` : "演算法估計值"}
                 </div>
                 <p class="mb-1">${esc(i.what)}</p>

@@ -17,6 +17,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import GroupKFold, cross_val_predict
 from ..config import MODEL_DIR
 from ..db import images, annotations, model_versions, INDICATORS, now
+from ..analysis import wrinkle_seg
 
 MODEL_PATH = MODEL_DIR / "skin_gbr.joblib"
 MIN_SAMPLES = 8
@@ -59,6 +60,10 @@ def train():
     try:
         bundle = {"models": {}, "keys": {}, "metrics": {}}
         for ind in INDICATORS:
+            if ind in _seg_handled():
+                bundle["metrics"][ind] = {"n": 0, "deployed": False,
+                                          "status": "改用 AI 皺紋分割 (U-Net) 直接計分，測試組改善 51%，不需要分數模型"}
+                continue
             feats, y, groups = _dataset(ind)
             if len(y) < MIN_SAMPLES:
                 bundle["metrics"][ind] = {"n": int(len(y)), "deployed": False, "status": f"樣本不足 (至少 {MIN_SAMPLES} 張)"}
@@ -110,10 +115,16 @@ def load():
     return _cache["bundle"]
 
 
+def _seg_handled():
+    """由 AI 分割模型直接計分的指標 (不用分數模型，也不會被分數模型覆蓋)。"""
+    return {"wrinkles"} if wrinkle_seg.available() else set()
+
+
 def predict(features: dict) -> dict:
-    """回傳 {indicator: severity}，只包含已上線的指標。"""
+    """回傳 {indicator: severity}，只包含已上線、且不是由 AI 分割直接計分的指標。"""
     b = load()
     if not b:
         return {}
+    skip = _seg_handled()
     return {ind: float(np.clip(m.predict(_to_matrix([features], b["keys"][ind]))[0], 0, 100))
-            for ind, m in b["models"].items()}
+            for ind, m in b["models"].items() if ind not in skip}
