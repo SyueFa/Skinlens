@@ -50,7 +50,10 @@ def run():
     check(r.status_code == 200 and len(d["indicators"]) == 6 and d["unavailable"], f"一般光源分析 6 項可見光指標 + UV 提示 ({r.status_code})")
     check(d["analysis_id"] is None and d["saved_to_history"] is False, "未登入未同意 → 不存")
     w = next(i for i in d["indicators"] if i["key"] == "wrinkles")
-    check(w["source"] == "model", f"皺紋使用訓練模型 ({w['source']})")
+    from skinlens.analysis import wrinkle_seg
+    expect = "ai_seg" if wrinkle_seg.available() else "model"
+    check(w["source"] == expect, f"皺紋計分來源 = {expect} ({w['source']})")
+    check(w["source"] != "ai_seg" or w["overlay"].startswith("data:image/jpeg"), "AI 皺紋線標示圖")
     check(not d["notices"] and not any(i["experimental"] for i in d["indicators"]), "一般光源沒有實驗性提示")
     r = c.post("/api/analyze", data={"file": (open(FACE, "rb"), "face.jpg"), "lighting": "uv"})
     d = r.get_json()
