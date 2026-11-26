@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}關於專案 · SkinLens{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="sl-page-head">
+    <div class="sl-eyebrow">關於 SkinLens</div>
+    <h1>讓每個人用手機就能做的膚況檢測</h1>
+    <p class="text-body-secondary" style="max-width:46rem">
+      醫美診所的 VISIA 膚質檢測要用專用拍攝箱和三種光源，一次要價數百元。SkinLens 用一般手機照片，
+      以影像處理找出 8 項膚況指標，告訴使用者問題在臉上哪裡、代表什麼、該怎麼保養，並讓會員追蹤保養前後的變化。
+    </p>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-4"><div class="sl-card p-4 h-100">
+      <i class="bi bi-bullseye fs-3 text-primary"></i><h2 class="h6 fw-bold mt-2">精準分區</h2>
+      <p class="small text-body-secondary mb-0">MediaPipe 偵測臉部 478 個特徵點，依雙眼轉正、統一尺度後切成額頭、眼尾、臉頰等 10 個分區，指出問題的位置。</p>
+    </div></div>
+    <div class="col-md-4"><div class="sl-card p-4 h-100">
+      <i class="bi bi-patch-check fs-3 text-primary"></i><h2 class="h6 fw-bold mt-2">用人工標註校正</h2>
+      <p class="small text-body-secondary mb-0">皺紋分數用 FFHQ-Wrinkle 資料集 1,000 張人工標註訓練校正模型，交叉驗證誤差比基準線低 23%；只有贏過基準線的模型才會上線。</p>
+    </div></div>
+    <div class="col-md-4"><div class="sl-card p-4 h-100">
+      <i class="bi bi-graph-up-arrow fs-3 text-primary"></i><h2 class="h6 fw-bold mt-2">追蹤與建議</h2>
+      <p class="small text-body-secondary mb-0">每項指標依 5 級嚴重度給保養建議與就醫提醒；會員可看分數趨勢，任選兩次紀錄比較前後差異。</p>
+    </div></div>
+  </div>
+
+  <div class="sl-card p-4 mb-3">
+    <h2 class="h5 fw-bold">系統架構</h2>
+    <p class="small text-body-secondary">前端 HTML / CSS / JavaScript + jQuery + Bootstrap 5，後端 Flask，資料庫 MongoDB。完整的 draw.io 原始檔在專案的 <code>docs/architecture.drawio</code>。</p>
+    <div class="sl-diagram">{% include "partials/architecture.svg" %}</div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="sl-card p-4 h-100">
+      <h2 class="h6 fw-bold">8 項指標與偵測方法</h2>
+      <table class="table table-sm small mb-0">
+        <thead><tr><th>指標</th><th>演算法</th></tr></thead>
+        <tbody>
+          <tr><td>斑點</td><td>L 通道黑帽運算找局部暗點，排除細長形</td></tr>
+          <tr><td>皺紋</td><td>Frangi 脊線濾波 + 細長度篩選 + 模型校正</td></tr>
+          <tr><td>紋理</td><td>高通濾波殘差的標準差</td></tr>
+          <tr><td>毛孔</td><td>小核黑帽 + 面積 / 圓度篩選</td></tr>
+          <tr><td>棕色斑</td><td>比周圍暗 + Lab b* (黃棕) 偏高</td></tr>
+          <tr><td>紅色區</td><td>Lab a* 高於自己臉部中位數</td></tr>
+          <tr><td>紫外線色斑</td><td>UV 照片中的暗斑</td></tr>
+          <tr><td>紫質</td><td>UV 照片中 R 高、B 低的小亮點</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+    <div class="col-lg-6"><div class="sl-card p-4 h-100">
+      <h2 class="h6 fw-bold">隱私與限制</h2>
+      <ul class="small mb-0">
+        <li>沒登入、沒勾選同意時，照片分析完就丟棄，不會儲存</li>
+        <li>會員的紀錄只有本人看得到，可以隨時在「帳號設定」一鍵刪除</li>
+        <li>訓練資料只存匿名代碼，不存姓名</li>
+        <li>一般相機沒有偏光濾鏡，反光會影響紅色區、棕色斑判斷；紫外線色斑與紫質需要 UV 燈拍攝</li>
+        <li>結果是保養參考，不能取代皮膚科醫師診斷</li>
+      </ul>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
