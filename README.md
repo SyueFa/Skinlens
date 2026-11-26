@@ -62,6 +62,7 @@ skinlens/
 scripts/
   download_models.py           下載 MediaPipe 模型
   import_ffhq_wrinkle.py       匯入 FFHQ-Wrinkle 人工皺紋標註
+  import_kaggle_skin.py        匯入 Kaggle 人工評分 (毛孔、紅色區、斑點、紋理)
   import_folder.py             批次匯入照片 + labels.csv
   calibrate.py                 用參考族群校準嚴重度曲線 → models/calib.json
   migrate_sqlite.py            舊版 SQLite 資料轉移到 MongoDB
@@ -103,24 +104,31 @@ docs/                          架構圖 (draw.io) 與產生腳本
 1. **參考族群校準** (`scripts/calibrate.py`)：原本演算法的參數是經驗值，跟真實臉部差很多 (例如毛孔中位數 30，經驗值假設 12，幾乎人人被判「嚴重」)。改用 1,000 張 FFHQ 臉部當參考族群，在對數尺度上把第 65 百分位對到嚴重度 50、第 95 百分位對到 85。
 2. **人工標註訓練** (`/admin` → 模型訓練)：用量測特徵預測人工分數的 Gradient Boosting 模型，5 折交叉驗證；只有誤差比「猜平均值」低 10% 以上的指標才上線。
 
-目前結果 (皺紋，FFHQ-Wrinkle 1,000 張人工標註)：
+目前結果 (5 折交叉驗證，0~100 分制)：
 
-| 交叉驗證誤差 (MAE) | 基準線 | 改善 | 相關係數 r |
-|---|---|---|---|
-| 11.17 分 | 14.58 分 | 23.4% | 0.614 |
+| 指標 | 標註來源 | 樣本 | 模型誤差 (MAE) | 基準線 | 改善 | 相關係數 r | 狀態 |
+|---|---|---|---|---|---|---|---|
+| 皺紋 | FFHQ-Wrinkle 人工遮罩 | 1,000 | 11.17 | 14.58 | 23.4% | 0.614 | ✅ 上線 |
+| 紅色區 | Kaggle 人工評分 | 195 | 18.44 | 22.24 | 17.1% | 0.520 | ✅ 上線 |
+| 紋理 | Kaggle 人工評分 | 195 | 16.39 | 18.33 | 10.6% | 0.470 | ✅ 上線 |
+| 毛孔 | Kaggle 人工評分 | 195 | 16.31 | 17.98 | 9.3% | 0.414 | 未達門檻，用校準分數 |
+| 斑點、棕色斑 | Kaggle 人工評分 | 195 | 18.42 | 18.79 | 2.0% | 0.356 | 未達門檻，用校準分數 |
+| 紫外線色斑、紫質 | — | 0 | — | — | — | — | 實驗性 (需 365nm UV 燈) |
 
-其他指標還沒有人工標註，目前用校準後的演算法分數；在後台標註累積到每項 8 張以上就能訓練 (建議 100 張以上)。
+Kaggle 照片只有 640×640、臉部約 270px 寬，毛孔、斑點這類細節不容易量到，可能是這兩項沒過門檻的主因；在後台補標高解析度照片可以再改善。
 
 ### 重建資料 (新電腦)
 
 ```bash
 # FFHQ-Wrinkle 遮罩：https://github.com/labhai/ffhq-wrinkle-dataset ；對應照片：FFHQ images1024x1024
 uv run python scripts/import_ffhq_wrinkle.py <images 資料夾> <manual_wrinkle_masks 資料夾>
+# Kaggle：https://www.kaggle.com/datasets/killa92/facial-skin-analysis-and-type-classification
+uv run python scripts/import_kaggle_skin.py <資料集資料夾>
 uv run python scripts/calibrate.py
 # 再到 /admin → 模型訓練
 ```
 
-資料集授權：FFHQ-Wrinkle 為 CC BY-NC-SA 4.0 (禁止商業用途)，本專案為非商業課堂作品。
+資料集授權：FFHQ-Wrinkle 為 CC BY-NC-SA 4.0 (禁止商業用途)；Kaggle 資料集頁面未標示授權，僅用於非商業課堂作品。
 
 ## 測試
 
