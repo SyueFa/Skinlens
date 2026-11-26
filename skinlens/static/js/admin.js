@@ -101,9 +101,11 @@ $(function () {
       <td>${IND[k]}</td><td class="tabular">${m.n}</td>
       <td>${m.deployed ? '<span class="badge text-bg-success">已上線</span>' : `<span class="badge text-bg-light border">${SL.esc(m.status || "未上線")}</span>`}</td>
       <td class="tabular">${m.cv_mae ?? "-"}</td><td class="tabular">${m.baseline_mae ?? "-"}</td>
-      <td class="tabular">${m.improvement != null ? m.improvement + "%" : "-"}</td><td class="tabular">${m.pearson_r ?? "-"}</td></tr>`).join("");
+      <td class="tabular">${m.improvement != null ? m.improvement + "%" : "-"}</td>
+      <td class="tabular small text-body-secondary">${m.improvement_range ? m.improvement_range.join(" ~ ") + "%" : "-"}</td>
+      <td class="tabular">${m.pearson_r ?? "-"}</td></tr>`).join("");
   }
-  const metricHead = `<thead><tr><th>指標</th><th>樣本</th><th>狀態</th><th>模型誤差</th><th>基準誤差</th><th>改善</th><th>相關係數 r</th></tr></thead>`;
+  const metricHead = `<thead><tr><th>指標</th><th>樣本</th><th>狀態</th><th>模型誤差</th><th>基準誤差</th><th>改善 (平均)</th><th>10 次分組範圍</th><th>相關係數 r</th></tr></thead>`;
 
   function loadVersions() {
     SL.api("GET", "/api/admin/models").then(vs => {
