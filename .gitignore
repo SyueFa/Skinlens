@@ -1,0 +1,22 @@
+# 環境
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# 個資 / 執行期資料：使用者照片、舊 SQLite 資料庫
+data/
+
+# 訓練出來的模型與下載的大型模型檔 (用 scripts/download_models.py 取得)
+models/*.joblib
+models/*.pt
+models/face_landmarker.task
+
+# 課程教材與評分資料 (不公開)
+informations/
+*.pptx
+老師評分標準.png
+
+# 編輯器
+.vscode/
+.idea/

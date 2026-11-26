@@ -1,0 +1,22 @@
+[project]
+name = "skinlens"
+version = "0.1.0"
+description = "SkinLens 臉部膚況分析網站 (Flask + MongoDB + Bootstrap/jQuery)"
+requires-python = "==3.12.*"
+dependencies = [
+    "flask>=3.1.3",
+    "joblib>=1.6.0",
+    "mediapipe>=1.2.3",
+    "numpy>=2.5.5",
+    "opencv-python-headless>=5.1.0.95",
+    "pillow>=13.0.0",
+    "pymongo>=4.20.2",
+    "python-dotenv>=1.2.4",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
