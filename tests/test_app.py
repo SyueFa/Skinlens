@@ -46,6 +46,12 @@ def run():
     check(d["analysis_id"] is None and d["saved_to_history"] is False, "未登入未同意 → 不存")
     w = next(i for i in d["indicators"] if i["key"] == "wrinkles")
     check(w["source"] == "model", f"皺紋使用訓練模型 ({w['source']})")
+    check(not d["notices"] and not any(i["experimental"] for i in d["indicators"]), "一般光源沒有實驗性提示")
+    r = c.post("/api/analyze", data={"file": (open(FACE, "rb"), "face.jpg"), "lighting": "uv"})
+    d = r.get_json()
+    check(r.status_code == 200 and sorted(i["key"] for i in d["indicators"]) == ["porphyrins", "uv_spots"],
+          "UV 光源只分析紫外線色斑、紫質")
+    check(all(i["experimental"] for i in d["indicators"]) and "實驗性" in d["notices"][0], "UV 結果標示實驗性 + 提醒")
 
     print("[會員]")
     check(c.post("/api/auth/register", json={"email": "bad", "password": "12345678"}).status_code == 400, "Email 格式錯 400")

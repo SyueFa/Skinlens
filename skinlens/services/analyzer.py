@@ -13,6 +13,9 @@ from ..analysis.knowledge import INDICATORS as KB, GENERAL_TIPS, DISCLAIMER, lev
 from . import trainer
 
 IMAGE_KEYS = ("original", "preprocessed", "regions_preview")
+EXPERIMENTAL = {"uv_spots", "porphyrins"}     # 需要 365nm UV 燈，尚未校準也沒有人工標註
+UV_NOTICE = ("紫外線色斑、紫質是實驗性功能：需要在 365nm UV 燈下拍攝，尚未經人工標註校正，結果僅供參考。"
+             "如果照片是一般光線拍的，這兩項分數沒有意義。")
 
 
 def _b64(img, q=85):
@@ -91,7 +94,7 @@ def build_report(pp, results, age, lighting):
             "key": k, "name": kb["name"], "en": kb["en"],
             "severity": r["severity"], "score": round(100 - r["severity"], 1),
             "level": lv, "level_name": lv_name, "count": r["count"], "raw": r["raw"],
-            "source": r["source"], "percentile": pct.get(k),
+            "source": r["source"], "percentile": pct.get(k), "experimental": k in EXPERIMENTAL,
             "worst_regions": [w[0] for w in worst if w[1] > 0],
             "what": kb["what"], "causes": kb["causes"], "advice": kb["advice"][lv],
             "doctor": kb["doctor"] if lv >= 3 else "",
@@ -108,6 +111,7 @@ def build_report(pp, results, age, lighting):
         "regions_preview": _b64(_region_preview(pp)),
         "indicators": indicators, "general_tips": GENERAL_TIPS, "disclaimer": DISCLAIMER,
         "unavailable": ([] if lighting == "uv" else ["紫外線色斑、紫質需要 UV 光源照片，請另外上傳並選擇「UV 光源」"]),
+        "notices": ([UV_NOTICE] if lighting == "uv" else []),
     }
 
 
