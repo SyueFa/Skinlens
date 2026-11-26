@@ -1,0 +1,31 @@
+{
+ "created_at": "2026-11-27T02:21:27",
+ "gpu": "NVIDIA GeForce RTX 5090",
+ "encoder": "resnet34",
+ "epochs": 60,
+ "best_val_dice": 0.6371,
+ "threshold": 0.55,
+ "split": {
+  "test": 100,
+  "val": 100,
+  "train": 800
+ },
+ "test": {
+  "unet": {
+   "dice": 0.6184,
+   "iou": 0.4476,
+   "tolerant_dice_2px": 0.7768,
+   "tolerant_precision": 0.7741,
+   "tolerant_recall": 0.7796,
+   "amount_r": 0.8714
+  },
+  "frangi": {
+   "dice": 0.1082,
+   "iou": 0.0572,
+   "tolerant_dice_2px": 0.2145,
+   "tolerant_precision": 0.5079,
+   "tolerant_recall": 0.136,
+   "amount_r": 0.4412
+  }
+ }
+}

@@ -69,6 +69,8 @@ scripts/
   fit_chromophore.py           估計黑色素 / 血紅素方向 → models/chromophore.json
   reextract_features.py        演算法改動後重新計算全部特徵
   compare_features.py          新特徵的對照實驗 (重複 10 次分組)
+  prepare_wrinkle_seg.py       皺紋分割資料準備 (轉到臉部座標、切分)
+  train_wrinkle_seg.py         U-Net 皺紋分割訓練與評分 (GPU)
   migrate_sqlite.py            舊版 SQLite 資料轉移到 MongoDB
   train_cnn.py                 第二階段 CNN (資料多時再用)
 tests/test_app.py              端對端測試 (uv run pytest)
@@ -142,6 +144,25 @@ docs/                          架構圖 (draw.io) 與產生腳本
 
 顏色類指標都有幫助，看形狀的皺紋、毛孔反而變差，所以這兩項不使用色素特徵 (`trainer.FEATURE_EXCLUDE`)。
 限制：陰影處的環境光偏藍，和黑色素方向重疊，黑色素圖仍會殘留部分陰影；血紅素圖則相當乾淨。
+
+### 皺紋分割 (U-Net，RTX 5090)
+
+讓模型直接看照片「畫出皺紋線」，再和 FFHQ-Wrinkle 的人工遮罩 (皺紋線 = 255) 逐像素對答案。
+
+- 資料：1,000 張照片與遮罩都轉到前處理後的臉部座標 (`scripts/prepare_wrinkle_seg.py`)，固定切成 train 800 / val 100 / test 100
+- 模型：U-Net + ResNet34 編碼器 (ImageNet 預訓練)，Dice + BCE 損失，bf16 混合精度，60 回合約 11 分鐘 (`scripts/train_wrinkle_seg.py`)
+- 只用 val 挑最佳回合與門檻值，test 只在最後評分一次
+
+| 測試組 100 張 | Dice | IoU | 容許 2px Dice | 召回率 (容許 2px) | 皺紋量相關 r |
+|---|---|---|---|---|---|
+| **U-Net (AI)** | **0.618** | **0.448** | **0.777** | **0.780** | **0.871** |
+| Frangi 濾波 (原本的傳統演算法) | 0.108 | 0.057 | 0.215 | 0.136 | 0.441 |
+
+![測試組範例：照片、人工答案、U-Net、Frangi (綠 = 畫對、紅 = 多畫、藍 = 漏畫)](docs/images/wrinkle_seg_test.jpg)
+
+範例照片來自 FFHQ (各照片依原作者的 Creative Commons 授權)，遮罩來自 FFHQ-Wrinkle (CC BY-NC-SA 4.0)。
+
+訓練環境：`uv sync --extra train` 會安裝 CUDA 12.8 版 PyTorch (RTX 5090 / Blackwell 需要 12.8 以上)；網站本身不需要 PyTorch，`requirements.txt` 也不含。
 
 ### 重建資料 (新電腦)
 
