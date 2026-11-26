@@ -21,6 +21,9 @@ from ..db import images, annotations, model_versions, INDICATORS, now
 MODEL_PATH = MODEL_DIR / "skin_gbr.joblib"
 MIN_SAMPLES = 8
 DEPLOY_RATIO = 0.9
+# 看「形狀」的指標不用色素 / 反光特徵：對照實驗 (scripts/compare_features.py) 顯示加入後皺紋 -0.5、毛孔 -1.9 個百分點，
+# 顏色類指標則有幫助 (紅色區 +8.1、紋理 +2.6、棕色斑 +2.2、斑點 +0.8)
+FEATURE_EXCLUDE = {"wrinkles": ("chromo.", "specular."), "pores": ("chromo.", "specular.")}
 CV_REPEATS = 10       # 重複幾次不同的隨機分組；樣本少時只跑一次容易因為運氣好而誤上線
 _cache = {"mtime": None, "bundle": None}
 _lock = threading.Lock()
@@ -60,7 +63,7 @@ def train():
             if len(y) < MIN_SAMPLES:
                 bundle["metrics"][ind] = {"n": int(len(y)), "deployed": False, "status": f"樣本不足 (至少 {MIN_SAMPLES} 張)"}
                 continue
-            keys = sorted({k for f in feats for k in f})
+            keys = sorted(k for k in {k for f in feats for k in f} if not k.startswith(FEATURE_EXCLUDE.get(ind, ())))
             X = _to_matrix(feats, keys)
             baseline = float(np.mean(np.abs(y - y.mean())))
             maes, corrs = [], []
