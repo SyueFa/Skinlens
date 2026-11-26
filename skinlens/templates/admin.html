@@ -47,7 +47,7 @@
     <div class="tab-pane fade" id="t-model">
       <div class="sl-card p-4 mb-3">
         <h2 class="h6 fw-bold">訓練校正模型</h2>
-        <p class="small text-body-secondary">用目前全部標註訓練 Gradient Boosting 模型 (5 折交叉驗證)。只有誤差比「猜平均值」低 10% 以上的指標會上線。</p>
+        <p class="small text-body-secondary">用目前全部標註訓練 Gradient Boosting 模型。依原始照片分組做 5 折交叉驗證、重複 10 次取平均，誤差比「猜平均值」低 10% 以上的指標才會上線 (約需 1~2 分鐘)。</p>
         <button class="btn btn-primary" id="train"><i class="bi bi-cpu"></i> 開始訓練</button>
         <div id="train-result" class="mt-3"></div>
       </div>
