@@ -34,7 +34,8 @@ const SL = (() => {
   function renderReport($root, data, opts = {}) {
     const ringColor = LEVEL_COLORS[Math.min(4, Math.floor((100 - data.overall_score) / 20))];
     const q = data.quality || {};
-    const warnings = [...(q.warnings || []), ...(data.unavailable || [])];
+    const warnings = [...(data.notices || []), ...(q.warnings || []), ...(data.unavailable || [])];
+    const expBadge = i => i.experimental ? ` <span class="badge rounded-pill text-bg-secondary fw-normal">實驗性</span>` : "";
     const hasImages = !!data.original;
     const inds = data.indicators;
     $root.off("click");   // 重新分析時清掉上一次的事件，避免重複綁定
@@ -85,7 +86,7 @@ const SL = (() => {
             <p class="small text-body-secondary mb-2">分數越高越好 (100 = 沒有這個問題)，點一下看說明</p>
             <div class="sl-ind-grid">${inds.map(i => `
               <button class="sl-ind-tile" data-key="${i.key}">
-                <div class="d-flex justify-content-between align-items-start"><span class="fw-bold">${esc(i.name)}</span>${levelBadge(i)}</div>
+                <div class="d-flex justify-content-between align-items-start"><span class="fw-bold">${esc(i.name)}${expBadge(i)}</span>${levelBadge(i)}</div>
                 <div class="num tabular">${Math.round(i.score)}</div>
                 <div class="sl-bar"><div style="width:${i.score}%;background:${LEVEL_COLORS[i.level]}"></div></div>
               </button>`).join("")}</div>
@@ -99,7 +100,7 @@ const SL = (() => {
           <div class="accordion-item" id="acc-${i.key}">
             <h4 class="accordion-header">
               <button class="accordion-button ${idx < 2 ? "" : "collapsed"}" type="button" data-bs-toggle="collapse" data-bs-target="#c-${i.key}">
-                <span class="me-2 fw-bold">${esc(i.name)}</span><small class="text-body-secondary me-2">${esc(i.en)}</small>
+                <span class="me-2 fw-bold">${esc(i.name)}</span><small class="text-body-secondary me-2">${esc(i.en)}${expBadge(i)}</small>
                 ${levelBadge(i)}<span class="ms-auto me-3 tabular small">${Math.round(i.score)} 分</span>
               </button>
             </h4>
@@ -109,7 +110,8 @@ const SL = (() => {
                   ${i.percentile != null ? `同齡百分位：贏過 ${i.percentile}% 的同齡者 · ` : ""}
                   ${i.count ? `偵測到 ${i.count} 處 · ` : ""}
                   ${i.worst_regions?.length ? `較明顯的位置：${i.worst_regions.map(r => REGIONS[r] || r).join("、")} · ` : ""}
-                  ${i.source === "model" ? `<span class="sl-source-model"><i class="bi bi-patch-check"></i> 已用 AI 模型校正</span>` : "演算法估計值"}
+                  ${i.source === "model" ? `<span class="sl-source-model"><i class="bi bi-patch-check"></i> 已用 AI 模型校正</span>`
+                    : i.experimental ? `<span class="text-secondary"><i class="bi bi-exclamation-diamond"></i> 實驗性：尚未經人工標註校正，僅供參考</span>` : "演算法估計值"}
                 </div>
                 <p class="mb-1">${esc(i.what)}</p>
                 <h6>可能原因</h6><ul>${i.causes.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
