@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ '登入' if mode == 'login' else '註冊' }} · SkinLens{% endblock %}
+{% block content %}
+<div class="container py-5" style="max-width:440px">
+  <div class="sl-card p-4">
+    <h1 class="h4 fw-bold mb-1">{{ '登入 SkinLens' if mode == 'login' else '建立免費帳號' }}</h1>
+    <p class="small text-body-secondary mb-4">
+      {% if mode == 'login' %}登入後每次分析都會保存，可以比較保養前後的變化。
+      {% else %}註冊後可以保存分析紀錄、看趨勢圖，也能隨時刪除自己的資料。{% endif %}
+    </p>
+    <form id="auth-form" novalidate>
+      {% if mode == 'register' %}
+      <div class="mb-3">
+        <label class="form-label" for="name">暱稱</label>
+        <input class="form-control" id="name" maxlength="30" placeholder="顯示在右上角，可不填">
+      </div>
+      {% endif %}
+      <div class="mb-3">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-control" id="email" type="email" required autocomplete="email">
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="password">密碼</label>
+        <input class="form-control" id="password" type="password" required minlength="8"
+               autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}">
+        {% if mode == 'register' %}<div class="form-text">至少 8 個字元</div>{% endif %}
+      </div>
+      <div id="auth-err" class="alert alert-danger small d-none" role="alert"></div>
+      <button class="btn btn-primary w-100" type="submit" id="auth-btn">{{ '登入' if mode == 'login' else '註冊並登入' }}</button>
+    </form>
+    <p class="small text-center mt-3 mb-0">
+      {% if mode == 'login' %}還沒有帳號？<a href="/register?next={{ next | urlencode }}">免費註冊</a>
+      {% else %}已經有帳號？<a href="/login?next={{ next | urlencode }}">登入</a>{% endif %}
+    </p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(function () {
+  const mode = {{ mode | tojson }};
+  let next = {{ next | tojson }};
+  if (!next.startsWith("/") || next.startsWith("//")) next = "/";   // 只允許站內跳轉
+  $("#auth-form").on("submit", function (e) {
+    e.preventDefault();
+    const body = {email: $("#email").val(), password: $("#password").val()};
+    if (mode === "register") body.name = $("#name").val();
+    $("#auth-btn").prop("disabled", true);
+    SL.api("POST", `/api/auth/${mode}`, body)
+      .then(() => location.href = next)
+      .catch(err => { $("#auth-err").text(err.message).removeClass("d-none"); $("#auth-btn").prop("disabled", false); });
+  });
+});
+</script>
+{% endblock %}

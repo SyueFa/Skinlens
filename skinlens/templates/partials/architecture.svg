@@ -1,0 +1,111 @@
+<svg viewBox="0 0 1220 800" role="img" aria-label="系統架構圖" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="20" y="20" width="900" height="160" rx="10" class="band client"/>
+<text x="34" y="44" class="band-title client">使用者端（瀏覽器）</text>
+<text x="34" y="62" class="band-sub">HTML · CSS · JavaScript · jQuery · Bootstrap 5</text>
+<rect x="40" y="82" width="160" height="72" rx="8" class="node client"/>
+<text x="120.0" y="115.0" class="node-title" text-anchor="middle">首頁 / 拍照上傳</text>
+<text x="120.0" y="131.0" class="node-sub" text-anchor="middle">拍攝規範提示</text>
+<rect x="216" y="82" width="160" height="72" rx="8" class="node client"/>
+<text x="296.0" y="115.0" class="node-title" text-anchor="middle">分析報告頁</text>
+<text x="296.0" y="131.0" class="node-sub" text-anchor="middle">8 指標 · 問題區域 · 建議</text>
+<rect x="392" y="82" width="160" height="72" rx="8" class="node client"/>
+<text x="472.0" y="115.0" class="node-title" text-anchor="middle">歷史紀錄</text>
+<text x="472.0" y="131.0" class="node-sub" text-anchor="middle">前後比較趨勢圖</text>
+<rect x="568" y="82" width="160" height="72" rx="8" class="node client"/>
+<text x="648.0" y="115.0" class="node-title" text-anchor="middle">指標百科</text>
+<text x="648.0" y="131.0" class="node-sub" text-anchor="middle">代表什麼 · 怎麼改善</text>
+<rect x="744" y="82" width="160" height="72" rx="8" class="node client"/>
+<text x="824.0" y="115.0" class="node-title" text-anchor="middle">後台</text>
+<text x="824.0" y="131.0" class="node-sub" text-anchor="middle">標註 · 訓練 · 統計</text>
+<rect x="20" y="240" width="900" height="150" rx="10" class="band server"/>
+<text x="34" y="264" class="band-title server">Flask 後端（Python 3.12）</text>
+<text x="34" y="282" class="band-sub">Blueprint 路由 · JSON API · 管理員登入驗證</text>
+<rect x="40" y="300" width="200" height="64" rx="8" class="node server"/>
+<text x="140.0" y="329.0" class="node-title" text-anchor="middle">分析 API</text>
+<text x="140.0" y="345.0" class="node-sub" text-anchor="middle">POST /api/analyze</text>
+<rect x="260" y="300" width="200" height="64" rx="8" class="node server"/>
+<text x="360.0" y="329.0" class="node-title" text-anchor="middle">歷史 API</text>
+<text x="360.0" y="345.0" class="node-sub" text-anchor="middle">GET /api/history</text>
+<rect x="480" y="300" width="200" height="64" rx="8" class="node server"/>
+<text x="580.0" y="329.0" class="node-title" text-anchor="middle">知識庫 API</text>
+<text x="580.0" y="345.0" class="node-sub" text-anchor="middle">GET /api/knowledge</text>
+<rect x="700" y="300" width="200" height="64" rx="8" class="node server"/>
+<text x="800.0" y="329.0" class="node-title" text-anchor="middle">後台 API</text>
+<text x="800.0" y="345.0" class="node-sub" text-anchor="middle">/api/admin/*（需登入）</text>
+<rect x="20" y="450" width="900" height="140" rx="10" class="band engine"/>
+<text x="34" y="474" class="band-title engine">影像分析引擎</text>
+<text x="34" y="492" class="band-sub">OpenCV · MediaPipe · scikit-image · scikit-learn</text>
+<rect x="40" y="508" width="200" height="60" rx="8" class="node engine"/>
+<text x="140.0" y="535.0" class="node-title" text-anchor="middle">前處理</text>
+<text x="140.0" y="551.0" class="node-sub" text-anchor="middle">MediaPipe 478 點 · 白平衡 · 分區</text>
+<rect x="260" y="508" width="200" height="60" rx="8" class="node engine"/>
+<text x="360.0" y="535.0" class="node-title" text-anchor="middle">8 指標辨識</text>
+<text x="360.0" y="551.0" class="node-sub" text-anchor="middle">斑點 · 皺紋 · 紋理 · 毛孔 …</text>
+<rect x="480" y="508" width="200" height="60" rx="8" class="node engine"/>
+<text x="580.0" y="535.0" class="node-title" text-anchor="middle">模型校正</text>
+<text x="580.0" y="551.0" class="node-sub" text-anchor="middle">Gradient Boosting</text>
+<rect x="700" y="508" width="200" height="60" rx="8" class="node engine"/>
+<text x="800.0" y="535.0" class="node-title" text-anchor="middle">報告產生</text>
+<text x="800.0" y="551.0" class="node-sub" text-anchor="middle">嚴重度 · 百分位 · 建議</text>
+<rect x="20" y="650" width="900" height="130" rx="10" class="band data"/>
+<text x="34" y="674" class="band-title data">資料層</text>
+<text x="34" y="692" class="band-sub">MongoDB（pymongo）· 本機 / MongoDB Atlas</text>
+<path d="M40,713 a68.0,9 0 0 0 136,0 v40 a68.0,9 0 0 1 -136,0 z" class="node data"/>
+<ellipse cx="108.0" cy="713" rx="68.0" ry="9" class="node data"/>
+<text x="108.0" y="734.0" class="node-title" text-anchor="middle">subjects</text>
+<text x="108.0" y="750.0" class="node-sub" text-anchor="middle">受測者</text>
+<path d="M190,713 a68.0,9 0 0 0 136,0 v40 a68.0,9 0 0 1 -136,0 z" class="node data"/>
+<ellipse cx="258.0" cy="713" rx="68.0" ry="9" class="node data"/>
+<text x="258.0" y="734.0" class="node-title" text-anchor="middle">images</text>
+<text x="258.0" y="750.0" class="node-sub" text-anchor="middle">照片 · 特徵</text>
+<path d="M340,713 a68.0,9 0 0 0 136,0 v40 a68.0,9 0 0 1 -136,0 z" class="node data"/>
+<ellipse cx="408.0" cy="713" rx="68.0" ry="9" class="node data"/>
+<text x="408.0" y="734.0" class="node-title" text-anchor="middle">annotations</text>
+<text x="408.0" y="750.0" class="node-sub" text-anchor="middle">人工標註</text>
+<path d="M490,713 a68.0,9 0 0 0 136,0 v40 a68.0,9 0 0 1 -136,0 z" class="node data"/>
+<ellipse cx="558.0" cy="713" rx="68.0" ry="9" class="node data"/>
+<text x="558.0" y="734.0" class="node-title" text-anchor="middle">analyses</text>
+<text x="558.0" y="750.0" class="node-sub" text-anchor="middle">分析紀錄</text>
+<path d="M640,713 a68.0,9 0 0 0 136,0 v40 a68.0,9 0 0 1 -136,0 z" class="node data"/>
+<ellipse cx="708.0" cy="713" rx="68.0" ry="9" class="node data"/>
+<text x="708.0" y="734.0" class="node-title" text-anchor="middle">model_versions</text>
+<text x="708.0" y="750.0" class="node-sub" text-anchor="middle">模型版本</text>
+<rect x="790" y="704" width="112" height="58" rx="8" class="node data"/>
+<text x="846.0" y="730.0" class="node-title" text-anchor="middle">照片檔案</text>
+<text x="846.0" y="746.0" class="node-sub" text-anchor="middle">uploads / processed</text>
+<rect x="950" y="20" width="250" height="760" rx="10" class="band ext"/>
+<text x="964" y="44" class="band-title ext">外部資源</text>
+<text x="964" y="62" class="band-sub">資料集 · 模型 · 部署</text>
+<rect x="970" y="82" width="210" height="64" rx="8" class="node ext"/>
+<text x="1075.0" y="111.0" class="node-title" text-anchor="middle">FFHQ-Wrinkle</text>
+<text x="1075.0" y="127.0" class="node-sub" text-anchor="middle">1,000 張人工皺紋標註</text>
+<rect x="970" y="190" width="210" height="64" rx="8" class="node ext"/>
+<text x="1075.0" y="219.0" class="node-title" text-anchor="middle">匯入腳本</text>
+<text x="1075.0" y="235.0" class="node-sub" text-anchor="middle">遮罩 → 皺紋分數</text>
+<rect x="970" y="508" width="210" height="60" rx="8" class="node ext"/>
+<text x="1075.0" y="535.0" class="node-title" text-anchor="middle">訓練模型</text>
+<text x="1075.0" y="551.0" class="node-sub" text-anchor="middle">交叉驗證 · 優於基準才上線</text>
+<rect x="970" y="680" width="210" height="80" rx="8" class="node ext"/>
+<text x="1075.0" y="717.0" class="node-title" text-anchor="middle">部署（選用）</text>
+<text x="1075.0" y="733.0" class="node-sub" text-anchor="middle">Render + MongoDB Atlas</text>
+<path d="M240,538.0 L260,538.0" class="edge" marker-end="url(#arr)"/>
+<path d="M460,538.0 L480,538.0" class="edge" marker-end="url(#arr)"/>
+<path d="M680,538.0 L700,538.0" class="edge" marker-end="url(#arr)"/>
+<path d="M470.0,180 L470.0,240" class="edge" marker-end="url(#arr)"/>
+<rect x="403.5" y="200.0" width="133" height="20" rx="4" class="edge-label-bg"/>
+<text x="470.0" y="214.0" class="edge-label" text-anchor="middle">AJAX · JSON</text>
+<path d="M470.0,390 L470.0,450" class="edge" marker-end="url(#arr)"/>
+<rect x="442.0" y="410.0" width="56" height="20" rx="4" class="edge-label-bg"/>
+<text x="470.0" y="424.0" class="edge-label" text-anchor="middle">呼叫分析</text>
+<path d="M470.0,590 L470.0,650" class="edge" marker-end="url(#arr)"/>
+<rect x="409.0" y="610.0" width="122" height="20" rx="4" class="edge-label-bg"/>
+<text x="470.0" y="624.0" class="edge-label" text-anchor="middle">pymongo 讀寫</text>
+<path d="M1075.0,146 L1075.0,190" class="edge" marker-end="url(#arr)"/>
+<path d="M970,222.0 L940,222 L940,790 L378,790 L408.0,762" class="edge dashed" marker-end="url(#arr)"/>
+<rect x="912.0" y="496.0" width="56" height="20" rx="4" class="edge-label-bg"/>
+<text x="940.0" y="510.0" class="edge-label" text-anchor="middle">寫入標註</text>
+<path d="M970,538.0 L930,538 L930,582 L580,582 L580.0,568" class="edge dashed" marker-end="url(#arr)"/>
+<rect x="727.0" y="572.0" width="56" height="20" rx="4" class="edge-label-bg"/>
+<text x="755.0" y="586.0" class="edge-label" text-anchor="middle">更新模型</text>
+</svg>

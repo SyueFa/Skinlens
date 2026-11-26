@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}帳號設定 · SkinLens{% endblock %}
+{% block content %}
+<div class="container" style="max-width:640px">
+  <div class="sl-page-head"><div class="sl-eyebrow">帳號</div><h1>帳號設定</h1></div>
+  <div class="sl-card p-4 mb-3">
+    <h2 class="h6 fw-bold">基本資料</h2>
+    <p class="small text-body-secondary">分析時會自動帶入，用來跟同年齡層比較 (同齡百分位)。</p>
+    <form id="profile-form" class="row g-3">
+      <div class="col-md-4"><label class="form-label" for="p-age">年齡</label><input class="form-control" id="p-age" type="number" min="10" max="99"></div>
+      <div class="col-md-4"><label class="form-label" for="p-gender">性別</label>
+        <select class="form-select" id="p-gender"><option value="">不填</option><option value="F">女</option><option value="M">男</option><option value="other">其他</option></select></div>
+      <div class="col-md-4"><label class="form-label" for="p-skin">膚質</label>
+        <select class="form-select" id="p-skin"><option value="">不確定</option><option value="oily">油性</option><option value="dry">乾性</option><option value="combination">混合性</option><option value="normal">中性</option><option value="sensitive">敏感性</option></select></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">儲存</button></div>
+    </form>
+  </div>
+  <div class="sl-card p-4 border-danger-subtle">
+    <h2 class="h6 fw-bold text-danger">刪除我的資料</h2>
+    <p class="small text-body-secondary">會刪除你所有的分析紀錄和照片，無法復原。</p>
+    <div id="del-step1"><button class="btn btn-outline-danger btn-sm" id="del-ask">刪除全部分析紀錄</button></div>
+    <div id="del-step2" class="d-none">
+      <p class="small fw-bold">確定要刪除全部紀錄嗎？</p>
+      <button class="btn btn-danger btn-sm" id="del-yes">確定刪除</button>
+      <button class="btn btn-link btn-sm" id="del-no">取消</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(function () {
+  const p = window.CURRENT_USER.profile || {};
+  $("#p-age").val(p.age || ""); $("#p-gender").val(p.gender || ""); $("#p-skin").val(p.skin_type || "");
+  $("#profile-form").on("submit", e => {
+    e.preventDefault();
+    SL.api("PUT", "/api/auth/profile", {age: $("#p-age").val(), gender: $("#p-gender").val(), skin_type: $("#p-skin").val()})
+      .then(() => SL.toast("已儲存")).catch(err => SL.toast(err.message, "danger"));
+  });
+  $("#del-ask").on("click", () => { $("#del-step1").addClass("d-none"); $("#del-step2").removeClass("d-none"); });
+  $("#del-no").on("click", () => { $("#del-step2").addClass("d-none"); $("#del-step1").removeClass("d-none"); });
+  $("#del-yes").on("click", () => SL.api("DELETE", "/api/history")
+    .then(r => { SL.toast(`已刪除 ${r.deleted} 筆紀錄`); $("#del-no").trigger("click"); })
+    .catch(err => SL.toast(err.message, "danger")));
+});
+</script>
+{% endblock %}
