@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SkinLens 膚況分析{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Sora:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  {% block head %}{% endblock %}
+</head>
+<body class="d-flex flex-column min-vh-100">
+<nav class="navbar navbar-expand-lg sl-nav sticky-top">
+  <div class="container">
+    <a class="navbar-brand sl-brand" href="/"><i class="bi bi-circle-half"></i> SkinLens</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-label="切換選單">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link {{ 'active' if page=='index' }}" href="/">膚況分析</a></li>
+        {% if current_user %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if page=='history' }}" href="/history">我的紀錄</a></li>
+        {% endif %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if page=='knowledge' }}" href="/knowledge">指標百科</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if page=='about' }}" href="/about">關於專案</a></li>
+        {% if current_user and current_user.role == 'admin' %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if page=='admin' }}" href="/admin"><i class="bi bi-shield-lock"></i> 後台</a></li>
+        {% endif %}
+      </ul>
+      <div class="d-flex gap-2 align-items-center">
+        {% if current_user %}
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+              <i class="bi bi-person-circle"></i> {{ current_user.name }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="/account"><i class="bi bi-gear"></i> 帳號設定</a></li>
+              <li><a class="dropdown-item" href="/history"><i class="bi bi-clock-history"></i> 我的紀錄</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button class="dropdown-item" id="btn-logout"><i class="bi bi-box-arrow-right"></i> 登出</button></li>
+            </ul>
+          </div>
+        {% else %}
+          <a class="btn btn-sm btn-outline-secondary" href="/login">登入</a>
+          <a class="btn btn-sm btn-primary" href="/register">免費註冊</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="flex-grow-1">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="sl-footer mt-5">
+  <div class="container py-4 small">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <span><strong>SkinLens</strong> · 課堂專題作品</span>
+      <span class="text-body-secondary">結果僅供保養參考，不能取代皮膚科醫師診斷</span>
+    </div>
+  </div>
+</footer>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>window.CURRENT_USER = {{ current_user | tojson }};</script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

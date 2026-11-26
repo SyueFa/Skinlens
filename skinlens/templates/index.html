@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="sl-hero">
+  <div class="container py-5">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-6">
+        <div class="sl-eyebrow mb-2">AI 臉部膚況分析</div>
+        <h1 class="mb-3">一張自拍，看懂你的膚況<br>和每一項該怎麼改善</h1>
+        <p class="text-body-secondary mb-4" style="max-width:34rem">
+          參考專業 VISIA 膚質檢測的做法：自動找出臉部 478 個特徵點、校正光線色偏，用手機照片分析斑點、皺紋、紋理、毛孔、棕色斑、紅色區 6 項指標
+          (搭配 UV 燈可再測紫外線色斑與紫質)，告訴你問題在臉上哪裡、代表什麼、怎麼保養。
+        </p>
+        <div class="d-flex flex-wrap gap-2">
+          <span class="sl-chip"><i class="bi bi-bullseye"></i> 10 個臉部分區</span>
+          <span class="sl-chip"><i class="bi bi-cpu"></i> 皺紋分數經 1,000 張人工標註校正</span>
+          <span class="sl-chip"><i class="bi bi-graph-up"></i> 會員可追蹤前後變化</span>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="sl-card p-4" id="form-card">
+          <div class="sl-drop mb-3" id="drop" tabindex="0" role="button" aria-label="選擇或拍攝臉部照片">
+            <div id="drop-empty">
+              <i class="bi bi-camera fs-1 d-block mb-2"></i>
+              <div class="fw-bold text-body">點這裡上傳或拍攝正面照片</div>
+              <div class="small">也可以把照片拖曳進來 · JPG / PNG，最大 15MB</div>
+            </div>
+            <img id="preview" class="d-none" alt="預覽照片">
+            <input type="file" id="file" accept="image/*" capture="user" class="d-none">
+          </div>
+          <div class="row g-2">
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1" for="lighting">光源</label>
+              <select class="form-select form-select-sm" id="lighting">
+                <option value="standard">一般光源</option><option value="cross_polarized">交叉偏光</option><option value="uv">UV 光源</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1" for="age">年齡</label>
+              <input class="form-control form-control-sm" id="age" type="number" min="10" max="99" placeholder="選填">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1" for="gender">性別</label>
+              <select class="form-select form-select-sm" id="gender"><option value="">不填</option><option value="F">女</option><option value="M">男</option><option value="other">其他</option></select>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1" for="skin_type">膚質</label>
+              <select class="form-select form-select-sm" id="skin_type"><option value="">不確定</option><option value="oily">油性</option><option value="dry">乾性</option><option value="combination">混合性</option><option value="normal">中性</option><option value="sensitive">敏感性</option></select>
+            </div>
+          </div>
+          <div class="form-check mt-3 small">
+            <input class="form-check-input" type="checkbox" id="consent">
+            <label class="form-check-label text-body-secondary" for="consent">同意將照片匿名存入資料庫，協助改善模型準確度 (可隨時要求刪除)</label>
+          </div>
+          <button class="btn btn-primary w-100 mt-3 py-2" id="go" disabled><i class="bi bi-stars"></i> 開始分析</button>
+          <div id="err" class="alert alert-danger small mt-3 mb-0 d-none" role="alert"></div>
+          <div id="progress" class="mt-3 d-none">
+            <ul class="sl-steps small">
+              <li data-step="0"><i class="bi bi-circle"></i> 上傳照片</li>
+              <li data-step="1"><i class="bi bi-circle"></i> 偵測臉部 478 個特徵點、轉正</li>
+              <li data-step="2"><i class="bi bi-circle"></i> 校正光線與色偏、切出 10 個分區</li>
+              <li data-step="3"><i class="bi bi-circle"></i> 分析 8 項指標並產生建議</li>
+            </ul>
+          </div>
+        </div>
+        <details class="small text-body-secondary mt-3">
+          <summary>怎麼拍才準？</summary>
+          <ul class="sl-tips mt-2 mb-0">
+            <li>素顏、頭髮撥開，不要開美顏或濾鏡</li>
+            <li>面對窗戶或環形燈，光線均勻；避免頭頂光造成陰影被誤判成斑點或皺紋</li>
+            <li>臉部至少佔畫面寬度 1/3、對焦清楚</li>
+            <li>要追蹤前後變化：同地點、同燈光、同距離拍</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container py-4" id="result-wrap" hidden>
+  <div id="result"></div>
+  <div class="text-center mt-4"><button class="btn btn-outline-primary" id="again"><i class="bi bi-arrow-repeat"></i> 再分析一張</button></div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/analyze.js') }}"></script>{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}分析報告 · SkinLens{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="sl-page-head"><a href="/history" class="small"><i class="bi bi-arrow-left"></i> 回到我的紀錄</a><h1 class="mt-2">分析報告</h1></div>
+  <div id="result"><div class="text-center py-5"><div class="spinner-border text-primary"></div></div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(function () {
+  const id = {{ analysis_id | tojson }};
+  SL.api("GET", `/api/history/${encodeURIComponent(id)}`)
+    .then(d => SL.renderReport($("#result"), d, {faceUrl: d.has_image ? `/api/history/${encodeURIComponent(id)}/image` : null}))
+    .catch(err => $("#result").html(`<div class="alert alert-warning">${SL.esc(err.message)}</div>`));
+});
+</script>
+{% endblock %}

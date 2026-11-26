@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}指標百科 · SkinLens{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="sl-page-head">
+    <div class="sl-eyebrow">指標百科</div>
+    <h1>8 項膚況指標：代表什麼、怎麼改善</h1>
+    <p class="text-body-secondary mb-0" style="max-width:44rem">每一項都依嚴重度分成 5 級 (優良、輕微、中等、明顯、嚴重)，分析報告會依你的等級給對應的建議。內容是一般保養衛教，不是醫療診斷。</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2 mb-3" id="kb-nav"></div>
+  <div id="kb"><div class="text-center py-5"><div class="spinner-border text-primary"></div></div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(function () {
+  SL.api("GET", "/api/knowledge").then(d => {
+    const entries = Object.entries(d.indicators);
+    $("#kb-nav").html(entries.map(([k, v]) => `<a class="btn btn-sm btn-outline-primary rounded-pill" href="#kb-${k}">${SL.esc(v.name)}</a>`).join(""));
+    $("#kb").html(entries.map(([k, v]) => `
+      <section class="sl-card p-4 mb-3 sl-kb-card" id="kb-${k}">
+        <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+          <h3 class="m-0">${SL.esc(v.name)} <small class="text-body-secondary fw-normal">${SL.esc(v.en)}</small></h3>
+          <span class="badge rounded-pill text-bg-light border">${SL.esc(v.light)}</span>
+        </div>
+        <p>${SL.esc(v.what)}</p>
+        <div class="row g-4">
+          <div class="col-md-4"><h4 class="h6 fw-bold">常見原因</h4><ul class="small mb-0">${v.causes.map(c => `<li>${SL.esc(c)}</li>`).join("")}</ul></div>
+          <div class="col-md-8"><h4 class="h6 fw-bold">依嚴重度的建議</h4>
+            ${Object.entries(v.advice).map(([lv, tips]) => `
+              <div class="sl-kb-level small" style="border-color:${SL.LEVEL_COLORS[lv]}">
+                <strong>${SL.esc(d.levels[lv])}</strong>：${tips.map(SL.esc).join("；")}
+              </div>`).join("")}
+            ${v.doctor ? `<div class="sl-doctor small mt-2"><i class="bi bi-hospital"></i> ${SL.esc(v.doctor)}</div>` : ""}
+          </div>
+        </div>
+      </section>`).join("") + `<p class="small text-body-secondary"><i class="bi bi-info-circle"></i> ${SL.esc(d.disclaimer)}</p>`);
+  }).catch(err => $("#kb").html(`<div class="alert alert-warning">${SL.esc(err.message)}</div>`));
+});
+</script>
+{% endblock %}
