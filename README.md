@@ -57,6 +57,7 @@ skinlens/
   analysis/
     preprocess.py              EXIF 轉正、臉部偵測與對齊、白平衡、CLAHE、膚色遮罩、10 分區、品質檢查
     indicators.py              8 項指標演算法
+    chromophore.py             黑色素 / 血紅素分離 (Tsumura 1999)、反光遮罩
     knowledge.py               指標意義、原因、依嚴重度的建議、就醫提醒
   templates/  static/          前端 (Bootstrap + jQuery)
 scripts/
@@ -65,6 +66,9 @@ scripts/
   import_kaggle_skin.py        匯入 Kaggle 人工評分 (毛孔、紅色區、斑點、紋理)
   import_folder.py             批次匯入照片 + labels.csv
   calibrate.py                 用參考族群校準嚴重度曲線 → models/calib.json
+  fit_chromophore.py           估計黑色素 / 血紅素方向 → models/chromophore.json
+  reextract_features.py        演算法改動後重新計算全部特徵
+  compare_features.py          新特徵的對照實驗 (重複 10 次分組)
   migrate_sqlite.py            舊版 SQLite 資料轉移到 MongoDB
   train_cnn.py                 第二階段 CNN (資料多時再用)
 tests/test_app.py              端對端測試 (uv run pytest)
@@ -94,6 +98,7 @@ docs/                          架構圖 (draw.io) 與產生腳本
         6. 切 10 個分區：額頭、眉間、左右眼尾、眼下、鼻、左右臉頰、法令紋、下巴
         7. 品質檢查：模糊、太暗、過曝、臉太小 → 顯示警告
      → 指標辨識 (analysis/indicators.py)：原始量測值 → 校準曲線 → 0~100 嚴重度、病灶遮罩、各分區數值
+     → 黑色素 / 血紅素分離與反光遮罩 (analysis/chromophore.py)：額外的色素特徵
      → 模型校正 (services/trainer.py)：已上線的指標改用模型分數
      → 同齡百分位 (同年齡 ±5 歲、至少 10 筆)
      → 報告 + 建議 (analysis/knowledge.py)
@@ -109,15 +114,32 @@ docs/                          架構圖 (draw.io) 與產生腳本
 | 指標 | 標註來源 | 樣本 | 模型誤差 (MAE) | 基準線 | 改善 (平均) | 10 次範圍 | 相關係數 r | 狀態 |
 |---|---|---|---|---|---|---|---|---|
 | 皺紋 | FFHQ-Wrinkle 人工遮罩 | 1,000 | 11.23 | 14.58 | 23.0% | 22.5 ~ 24.6% | 0.610 | ✅ 上線 |
-| 紅色區 | Kaggle 人工評分 | 195 | 19.22 | 22.14 | 13.2% | 8.6 ~ 17.9% | 0.461 | ✅ 上線 |
-| 斑點 | Kaggle 人工評分 | 195 | 20.06 | 22.80 | 12.0% | 9.3 ~ 16.0% | 0.451 | ✅ 上線 |
+| 紅色區 | Kaggle 人工評分 | 195 | 17.42 | 22.14 | 21.3% | 19.0 ~ 25.3% | 0.590 | ✅ 上線 |
+| 斑點 | Kaggle 人工評分 | 195 | 19.87 | 22.80 | 12.9% | 11.5 ~ 14.8% | 0.461 | ✅ 上線 |
+| 紋理 | Kaggle 人工評分 | 195 | 16.50 | 18.38 | 10.2% | 7.5 ~ 13.8% | 0.422 | ✅ 上線 (接近門檻) |
 | 毛孔 | Kaggle 人工評分 | 195 | 16.14 | 17.91 | 9.9% | 4.2 ~ 16.1% | 0.421 | 未達門檻，用校準分數 |
-| 紋理 | Kaggle 人工評分 | 195 | 16.98 | 18.38 | 7.6% | 4.1 ~ 10.5% | 0.399 | 未達門檻，用校準分數 |
-| 棕色斑 | Kaggle 人工評分 | 195 | 18.88 | 18.82 | -0.4% | -4.1 ~ 3.3% | 0.328 | 未達門檻，用校準分數 |
+| 棕色斑 | Kaggle 人工評分 | 195 | 18.47 | 18.82 | 1.9% | -1.8 ~ 6.0% | 0.357 | 未達門檻，用校準分數 |
 | 紫外線色斑、紫質 | — | 0 | — | — | — | — | — | 實驗性 (需 365nm UV 燈) |
 
 資料品質處理：Kaggle 的 200 筆評分裡有 3 張照片重複且評分不一致 (取平均)、10 張臉以 Roboflow 副本出現兩次 (同一組，避免交叉驗證洩漏)。
-Kaggle 照片只有 640×640、臉部約 270px 寬，毛孔、紋理這類細節不容易量到，可能是這幾項沒過門檻的主因；在後台補標高解析度照片可以再改善。
+
+### 黑色素 / 血紅素分離 (對照實驗)
+
+依 Tsumura et al. (JOSA A, 1999)：把照片轉成線性亮度的光學密度，用 FastICA 從 300 張 FFHQ 臉 (90 萬個皮膚像素) 估計黑色素、血紅素在相機 RGB 上的方向 (`scripts/fit_chromophore.py`)，每張照片分離出黑色素圖、血紅素圖；另外標出油光反射像素 (VISIA 用偏光濾鏡消除，一般相機沒有)。
+
+同樣 10 種分組，加入這 31 個新特徵前後的誤差改善 (`scripts/compare_features.py`)：
+
+| 指標 | 加入前 | 加入後 | 差異 | 10 次中變好 |
+|---|---|---|---|---|
+| 紅色區 | 13.2% | 21.3% | +8.1 | 10/10 |
+| 紋理 | 7.6% | 10.2% | +2.6 | 10/10 |
+| 棕色斑 | -0.4% | 1.9% | +2.2 | 8/10 |
+| 斑點 | 12.0% | 12.9% | +0.8 | 7/10 |
+| 皺紋 | 23.0% | 22.5% | -0.5 | 2/10 |
+| 毛孔 | 9.9% | 8.0% | -1.9 | 0/10 |
+
+顏色類指標都有幫助，看形狀的皺紋、毛孔反而變差，所以這兩項不使用色素特徵 (`trainer.FEATURE_EXCLUDE`)。
+限制：陰影處的環境光偏藍，和黑色素方向重疊，黑色素圖仍會殘留部分陰影；血紅素圖則相當乾淨。
 
 ### 重建資料 (新電腦)
 
@@ -127,6 +149,8 @@ uv run python scripts/import_ffhq_wrinkle.py <images 資料夾> <manual_wrinkle_
 # Kaggle：https://www.kaggle.com/datasets/killa92/facial-skin-analysis-and-type-classification
 uv run python scripts/import_kaggle_skin.py <資料集資料夾>
 uv run python scripts/calibrate.py
+uv run python scripts/fit_chromophore.py
+uv run python scripts/reextract_features.py
 # 再到 /admin → 模型訓練
 ```
 
