@@ -6,6 +6,9 @@ $(function () {
   if (prof.gender) $("#gender").val(prof.gender);
   if (prof.skin_type) $("#skin_type").val(prof.skin_type);
 
+  // 選 UV 光源時提醒：需要 365nm UV 燈拍攝，且尚未校正
+  $("#lighting").on("change", function () { $("#uv-warn").prop("hidden", this.value !== "uv"); });
+
   function pick(f) {
     if (!f) return;
     if (!f.type.startsWith("image/")) { showErr("請選擇圖片檔 (JPG、PNG)"); return; }
