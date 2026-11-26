@@ -34,6 +34,8 @@ def extract(data: bytes, lighting="standard"):
             r["severity_heuristic"] = r["severity"]
             r["severity"] = round(learned[k], 1)
             r["source"] = "model"
+        elif r.get("method") == "unet":
+            r["source"] = "ai_seg"          # AI 皺紋分割直接計分
         else:
             r["source"] = "heuristic"
     return pp, results, feats
@@ -140,7 +142,7 @@ def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=N
                "overall_score": report["overall_score"], "summary": report["summary"],
                "results": {k: {"severity": r["severity"], "raw": r["raw"], "count": r["count"], "source": r["source"]}
                            for k, r in results.items()},
-               "model_version": "model" if any(r["source"] == "model" for r in results.values()) else "heuristic",
+               "model_version": "model" if any(r["source"] in ("model", "ai_seg") for r in results.values()) else "heuristic",
                "report": strip_images(report), "created_at": now()}
         analysis_id = analyses.insert_one(doc).inserted_id
         if user:
