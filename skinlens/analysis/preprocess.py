@@ -73,6 +73,8 @@ def _detect_mediapipe(bgr):
 
 def _detect_haar(bgr):
     global _haar
+    if not hasattr(cv2, "CascadeClassifier"):   # OpenCV 5 已移除 Haar 偵測，沒有就跳過
+        return None
     if _haar is None:
         _haar = (cv2.CascadeClassifier(str(MODEL_DIR / "haarcascade_frontalface_default.xml")),
                  cv2.CascadeClassifier(str(MODEL_DIR / "haarcascade_eye.xml")))
