@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}後台 · SkinLens{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="sl-page-head"><div class="sl-eyebrow">管理員</div><h1>後台</h1></div>
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#t-overview">總覽</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-label">照片標註</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-model">模型訓練</button></li>
+  </ul>
+  <div class="tab-content">
+    <!-- 總覽 -->
+    <div class="tab-pane fade show active" id="t-overview">
+      <div class="row g-3 mb-3" id="stat-cards"></div>
+      <div class="sl-card p-4">
+        <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+          <h2 class="h6 fw-bold m-0">各指標已標註張數</h2>
+          <a class="btn btn-sm btn-outline-primary" href="/api/admin/export.csv"><i class="bi bi-download"></i> 匯出資料集 CSV</a>
+        </div>
+        <p class="small text-body-secondary">每個指標至少 8 張才能訓練；建議 100 張以上效果才穩定。</p>
+        <div id="labeled"></div>
+      </div>
+    </div>
+
+    <!-- 標註 -->
+    <div class="tab-pane fade" id="t-label">
+      <div class="row g-3">
+        <div class="col-lg-3">
+          <div class="sl-card p-3">
+            <div class="form-check form-switch small mb-2">
+              <input class="form-check-input" type="checkbox" id="only-unlabeled"><label class="form-check-label" for="only-unlabeled">只顯示未標註</label>
+            </div>
+            <div class="small text-body-secondary mb-2" id="img-total"></div>
+            <div class="list-group list-group-flush sl-thumb-list small" id="img-list"></div>
+            <button class="btn btn-sm btn-link w-100" id="more">載入更多</button>
+          </div>
+        </div>
+        <div class="col-lg-9">
+          <div class="sl-card p-3" id="label-panel">
+            <p class="text-body-secondary m-0">從左邊選一張照片開始標註。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模型 -->
+    <div class="tab-pane fade" id="t-model">
+      <div class="sl-card p-4 mb-3">
+        <h2 class="h6 fw-bold">訓練校正模型</h2>
+        <p class="small text-body-secondary">用目前全部標註訓練 Gradient Boosting 模型 (5 折交叉驗證)。只有誤差比「猜平均值」低 10% 以上的指標會上線。</p>
+        <button class="btn btn-primary" id="train"><i class="bi bi-cpu"></i> 開始訓練</button>
+        <div id="train-result" class="mt-3"></div>
+      </div>
+      <div class="sl-card p-4">
+        <h2 class="h6 fw-bold">訓練紀錄</h2>
+        <div class="table-responsive"><table class="table table-sm small align-middle" id="versions"></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin.js') }}"></script>{% endblock %}

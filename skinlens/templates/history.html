@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}我的紀錄 · SkinLens{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="sl-page-head d-flex flex-wrap justify-content-between align-items-end gap-2">
+    <div><div class="sl-eyebrow">追蹤</div><h1 class="mb-0">我的紀錄</h1></div>
+    <a class="btn btn-primary" href="/"><i class="bi bi-plus-lg"></i> 新增一次分析</a>
+  </div>
+
+  <div id="empty" class="sl-card p-5 text-center d-none">
+    <i class="bi bi-clipboard-pulse fs-1 text-primary"></i>
+    <h2 class="h5 fw-bold mt-2">還沒有紀錄</h2>
+    <p class="text-body-secondary">登入狀態下做的每一次分析都會出現在這裡，可以看分數趨勢、比較保養前後。</p>
+    <a class="btn btn-primary" href="/">做第一次分析</a>
+  </div>
+
+  <div id="has-data" class="d-none">
+    <div class="sl-card p-4 mb-3">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h2 class="h6 fw-bold m-0">分數趨勢</h2>
+        <select class="form-select form-select-sm w-auto" id="metric" aria-label="選擇指標"></select>
+      </div>
+      <div style="position:relative;height:280px"><canvas id="trend" aria-label="分數趨勢圖"></canvas></div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-7">
+        <div class="sl-card p-4 h-100">
+          <h2 class="h6 fw-bold">每次紀錄</h2>
+          <p class="small text-body-secondary">勾選兩筆就能比較前後差異</p>
+          <div id="list"></div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="sl-card p-4 h-100" id="compare">
+          <h2 class="h6 fw-bold">前後比較</h2>
+          <p class="small text-body-secondary mb-0" id="compare-hint">從左邊勾選兩筆紀錄。</p>
+          <div id="compare-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/history.js') }}"></script>
+{% endblock %}
