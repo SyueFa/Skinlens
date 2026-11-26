@@ -31,7 +31,7 @@
             <div class="col-6 col-md-3">
               <label class="form-label small mb-1" for="lighting">光源</label>
               <select class="form-select form-select-sm" id="lighting">
-                <option value="standard">一般光源</option><option value="cross_polarized">交叉偏光</option><option value="uv">UV 光源</option>
+                <option value="standard">一般光源</option><option value="cross_polarized">交叉偏光</option><option value="uv">UV 光源 (實驗性)</option>
               </select>
             </div>
             <div class="col-6 col-md-3">
@@ -46,6 +46,10 @@
               <label class="form-label small mb-1" for="skin_type">膚質</label>
               <select class="form-select form-select-sm" id="skin_type"><option value="">不確定</option><option value="oily">油性</option><option value="dry">乾性</option><option value="combination">混合性</option><option value="normal">中性</option><option value="sensitive">敏感性</option></select>
             </div>
+          </div>
+          <div id="uv-warn" class="alert alert-warning small mt-3 mb-0 py-2" role="alert" hidden>
+            <i class="bi bi-exclamation-triangle"></i> <strong>UV 光源是實驗性功能。</strong>
+            請確認照片是在 365nm UV 燈下拍攝；一般光線拍的照片選這個，紫外線色斑、紫質的分數沒有意義。這兩項尚未經人工標註校正，僅供參考。
           </div>
           <div class="form-check mt-3 small">
             <input class="form-check-input" type="checkbox" id="consent">
