@@ -16,6 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from skimage.filters import frangi
+from . import chromophore
 from skimage.measure import label, regionprops
 
 # 疊圖顏色 (BGR)
@@ -237,4 +238,5 @@ def feature_vector(results, pp):
             feats[f"color.{c}_mean"] = float(lab[:, i].mean())
             feats[f"color.{c}_std"] = float(lab[:, i].std())
     feats.update({f"quality.{k}": v for k, v in pp["quality"].items() if isinstance(v, (int, float))})
+    feats.update(chromophore.features(pp))     # 黑色素 / 血紅素分離與反光 (Tsumura et al. 1999)
     return feats
