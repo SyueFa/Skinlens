@@ -52,12 +52,13 @@ def _percentiles(results, age, lighting):
     return out
 
 
-def store_training_image(data, pp, feats, lighting, subject_code=None, source="upload", subject_info=None):
-    """把照片存進訓練資料池 (images)。同一張照片 (sha256 相同) 只存一次。回傳 image _id。"""
+def store_training_image(data, pp, feats, lighting, subject_code=None, source="upload", subject_info=None, group=None):
+    """把照片存進訓練資料池 (images)。同一張照片 (sha256 相同) 只存一次。回傳 image _id。
+    group：同一張原始照片的不同副本給相同的值，訓練時交叉驗證會把它們分在同一組 (避免資料洩漏)。"""
     sha = hashlib.sha256(data).hexdigest()
     found = images.find_one({"sha256": sha}, {"_id": 1})
     if found:
-        images.update_one({"_id": found["_id"]}, {"$set": {"features": feats}})
+        images.update_one({"_id": found["_id"]}, {"$set": {"features": feats, **({"group": group} if group else {})}})
         return found["_id"]
     code = subject_code or "anon-" + uuid.uuid4().hex[:10]
     subjects.update_one({"code": code}, {"$setOnInsert": {"code": code, **(subject_info or {}), "consent": True,
@@ -70,6 +71,7 @@ def store_training_image(data, pp, feats, lighting, subject_code=None, source="u
     return images.insert_one({
         "subject_id": subj["_id"], "sha256": sha, "raw_path": str(raw_p), "processed_path": str(proc_p),
         "lighting": lighting, "quality": pp["quality"], "features": feats, "split": split, "source": source,
+        "group": group,
         "created_at": now()}).inserted_id
 
 
