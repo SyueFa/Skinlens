@@ -143,7 +143,8 @@ def align_and_crop(bgr, det):
     out_h = int((y1 - y0) * s)
     face = cv2.warpAffine(rot, M, (FACE_SIZE, out_h), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE)
     det = _transform(det, M)
-    return face, det, angle, fw
+    warp = (np.vstack([M, [0, 0, 1]]) @ np.vstack([R, [0, 0, 1]]))[:2].astype(np.float32)   # 原圖 → 臉部座標
+    return face, det, angle, fw, warp
 
 
 def color_normalize(bgr, p=6):
@@ -265,11 +266,12 @@ def preprocess(bgr):
     det = detect_face(bgr)
     if det is None:
         raise ValueError("偵測不到臉部，請上傳正面、清楚、無遮擋的臉部照片")
-    face_raw, det, roll, face_px = align_and_crop(bgr, det)
+    face_raw, det, roll, face_px, warp = align_and_crop(bgr, det)
     face = color_normalize(face_raw)
     skin, regions, ipd = build_masks(face, det)
     q = quality_check(face_raw, skin, face_px)
     q["roll_deg"] = round(roll, 1)
     q["detector"] = det["detector"]
     return {"face_raw": face_raw, "face": face, "gray_clahe": clahe_gray(face),
-            "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q}
+            "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q,
+            "warp": warp}   # 2×3 仿射矩陣：原始照片座標 → 轉正裁切後的臉部座標
