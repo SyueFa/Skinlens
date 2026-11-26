@@ -16,7 +16,24 @@ dependencies = [
     "scikit-learn>=1.9.1",
 ]
 
+[project.optional-dependencies]
+train = [
+    "segmentation-models-pytorch>=0.6.0",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
 ]
+
+# 訓練用 (選用)：uv sync --extra train。RTX 5090 (Blackwell) 需要 CUDA 12.8 以上的 PyTorch
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
