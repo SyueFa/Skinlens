@@ -127,6 +127,17 @@ def run():
     return check.failed
 
 
+def test_kaggle_import_helpers():
+    """同一張臉的 Roboflow 副本要分到同一組；斑點依定義取暗斑 / 雀斑 / 痘疤最大值。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from import_kaggle_skin import original_of, labels_of
+    assert original_of("oily_8a72f4-Copy_jpg.rf.63a8a6.jpg") == original_of("oily_8a72f4-Copy_jpg.rf.d434fc.jpg")
+    assert original_of("normal_new_9bb5e1_jpg.rf.16c11a.jpg") == original_of("dry_9bb5e1_jpg.rf.abc123.jpg")
+    lab = labels_of({"dark spots(0-5)": 1.0, "freckles(0-5)": 4.0, "post acne marks(0-5)": 2.0, "Open pores (0-5)": 3.0})
+    assert lab["spots"] == 4.0 and lab["brown_spots"] == 1.0 and lab["pores"] == 3.0
+    assert labels_of({"pigmentation(0-5)": 3.0})["brown_spots"] == 3.0
+
+
 def test_all():
     assert run() == 0
 
