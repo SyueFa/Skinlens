@@ -24,6 +24,9 @@ import numpy as np
 
 SCLERA_MIN_PX = 25          # 每隻眼至少幾個眼白像素 (臉寬 600px)
 SCLERA_MAX_LR_DEG = 6.0     # 左右眼估計的光源夾角上限 (度)
+# 眼白取哪段亮度的像素 (百分位)：normal 先用；左右眼對不上時改用 glare (多排除最亮的 15%，
+# 去掉眼球表面的窗戶 / 燈光倒影；實拍 POCO 右眼倒影讓左右眼差 8.4°，改用後 3.0°)
+SCLERA_Y_PCT = {"normal": (55, 98), "glare": (40, 85)}
 Y_BGR = np.array([0.0722, 0.7152, 0.2126])   # BGR 的亮度權重
 ANCHOR_REGIONS = ("forehead", "cheek_l", "cheek_r", "nose")   # 膚色錨定用：睜眼 / 閉眼都看得到的區域
 
@@ -67,7 +70,7 @@ def _log_mean(illums, weights):
 
 
 # ---------------------------------------------------------------- 1. 眼白
-def _one_eye(lin, poly):
+def _one_eye(lin, poly, y_pct):
     m = np.zeros(lin.shape[:2], np.uint8)
     cv2.fillPoly(m, [poly.astype(np.int32)], 255)
     m = cv2.erode(m, np.ones((3, 3), np.uint8)) > 0          # 避開睫毛、眼瞼邊緣
@@ -82,31 +85,48 @@ def _one_eye(lin, poly):
     y0 = px @ Y_BGR
     est = np.median(px[y0 >= np.median(y0)], axis=0)
     for _ in range(5):
-        q = px / est
+        q = px / np.maximum(est, 1e-4)
         y = q @ Y_BGR
         sat = (q.max(1) - q.min(1)) / (q.max(1) + 1e-6)
-        lo, hi = np.percentile(y, [55, 98])
+        lo, hi = np.percentile(y, y_pct)
         sel = (y >= lo) & (y <= hi)
         sel &= sat <= np.percentile(sat[sel], 60) if sel.any() else sel
         if sel.sum() < SCLERA_MIN_PX:
             return None, 0
         est = np.median(px[sel], axis=0)
+    if est.min() <= 1e-4:          # 某個通道全黑：顏色不可信
+        return None, 0
     return est, int(sel.sum())
 
 
-def sclera_illuminant(lin, polys, use_ref=True):
-    """回傳 (光源 BGR 或 None, 可信度 0~1, 說明)。
-    可信度 = 眼白像素量 (每眼 75 px 以上給滿) × 左右眼一致程度 (夾角 3° 內給滿、6° 以上為 0)。
-    use_ref：除以族群眼白參考色 (眼白本來就略帶黃，不是純白)。"""
-    if not polys:
-        return None, 0.0, "no_landmarks"
-    (el, nl), (er, nr) = (_one_eye(lin, polys[k]) for k in ("eye_l", "eye_r"))
+def _sclera_once(lin, polys, mode):
+    """用一種亮度範圍估左右眼。回傳 (平均光源, 可信度, 說明) 或 (None, 0, 原因)。"""
+    (el, nl), (er, nr) = (_one_eye(lin, polys[k], SCLERA_Y_PCT[mode]) for k in ("eye_l", "eye_r"))
     if el is None or er is None:
         return None, 0.0, "eyes_closed_or_small"
     ang = _angle_deg(el, er)
     w = min(1.0, min(nl, nr) / (3 * SCLERA_MIN_PX)) * float(np.clip((SCLERA_MAX_LR_DEG - ang) / (SCLERA_MAX_LR_DEG / 2), 0, 1))
-    est = (el + er) / 2
-    return (est / _reference("sclera") if use_ref else est), w, f"px{min(nl, nr)}_lr{ang:.1f}deg"
+    return (el + er) / 2, w, f"{mode}_px{min(nl, nr)}_lr{ang:.1f}deg"
+
+
+def sclera_illuminant(lin, polys, use_ref=True, mode=None):
+    """回傳 (光源 BGR 或 None, 可信度 0~1, 說明)。
+    可信度 = 眼白像素量 (每眼 75 px 以上給滿) × 左右眼一致程度 (夾角 3° 內給滿、6° 以上為 0)。
+    兩段式：先用一般範圍；左右眼對不上 (通常是眼球表面有光源倒影) 時改用排除反光的範圍，取可信度高的。
+    use_ref：除以該範圍的族群眼白參考色 (眼白本來就略帶黃紅，不是純白)。mode：只用指定範圍 (擬合參考色用)。"""
+    if not polys:
+        return None, 0.0, "no_landmarks"
+    best = (None, 0.0, "eyes_closed_or_small", "normal")
+    for m in ([mode] if mode else ("normal", "glare")):
+        est, w, why = _sclera_once(lin, polys, m)
+        if est is not None and (best[0] is None or w > best[1]):
+            best = (est, w, why, m)
+        if w >= 1.0:
+            break
+    est, w, why, m = best
+    if est is None:
+        return None, 0.0, why
+    return (est / _reference(f"sclera_{m}") if use_ref else est), w, why
 
 
 # ---------------------------------------------------------------- 2. 備援

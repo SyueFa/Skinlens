@@ -1,13 +1,20 @@
 {
  "source": "ffhq_wrinkle",
  "n_images": 890,
- "n_sclera": 296,
- "created_at": "2026-11-27T23:46:13",
+ "n_sclera_normal": 296,
+ "n_sclera_glare": 283,
+ "n_sog": 890,
+ "created_at": "2026-11-28T00:58:37",
  "note": "族群中位數的光源估計 (線性 BGR，G=1)。校色時把估計值除以這個參考色",
- "sclera": [
+ "sclera_normal": [
   0.88952,
   1.0,
   1.50742
+ ],
+ "sclera_glare": [
+  0.87216,
+  1.0,
+  1.58632
  ],
  "sog": [
   0.92636,
