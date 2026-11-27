@@ -180,7 +180,14 @@ def apply_illuminant(lin, illum):
 
 
 def normalize(face_raw, polys, method="auto", illuminant=None):
-    """回傳 (校色後 BGR uint8, 說明 dict)。
+    """回傳 (校色後 BGR uint8, 說明 dict)。參數同 normalize_linear。"""
+    lin, info = normalize_linear(face_raw, polys, method, illuminant)
+    return to_srgb(lin), info
+
+
+def normalize_linear(face_raw, polys, method="auto", illuminant=None):
+    """回傳 (校色後的線性亮度 BGR float32，不截斷、可以大於 1, 說明 dict)。
+    色素分離要用這個：轉回 8-bit 時亮部會被截掉，扭曲色素比例。
     illuminant：已知光源 (例如 session_illuminant 從睜眼影格估出來的)，有給就直接用。
     method: auto = 依眼白可信度把眼白與 SoG 的光源估計平滑混合 (不硬切換，邊界照片的結果才不會跳動)
             sclera = 只用眼白 (不可用就不校色) / sog = 只用 Shades-of-Gray"""
@@ -203,7 +210,7 @@ def normalize(face_raw, polys, method="auto", illuminant=None):
                 "sclera_weight": round(float(w), 3), "sclera": why}
     if illum is None:
         info["method"] = "none"
-        return face_raw.copy(), info
+        return lin, info
     illum = np.asarray(illum, float)
     info["illuminant_bgr"] = [round(float(x), 4) for x in illum / illum[1]]
-    return to_srgb(apply_illuminant(lin, illum)), info
+    return apply_illuminant(lin, illum).astype(np.float32), info

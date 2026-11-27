@@ -17,7 +17,7 @@ from sklearn.decomposition import FastICA
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from skinlens.db import images
 from skinlens.analysis.preprocess import load_image, preprocess
-from skinlens.analysis.chromophore import optical_density, specular_mask, BASIS_FILE
+from skinlens.analysis.chromophore import optical_density, invalid_mask, face_lin, BASIS_FILE
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--source", default="ffhq_wrinkle")
@@ -36,9 +36,9 @@ for d in docs:
     except (ValueError, FileNotFoundError):
         continue
     skin = cv2.erode(pp["skin"], core_k) > 0
-    face = pp["face"]                 # 校色後的影像 (線性空間)，和網站分析時用的相同
-    valid = skin & ~specular_mask(face, skin)
-    od_img = optical_density(face)
+    lin = face_lin(pp)                # 校色後不截斷的線性浮點影像，和網站分析時用的相同
+    valid = skin & ~invalid_mask(pp, skin)
+    od_img = optical_density(lin)
     od = od_img[valid]
     if len(od) > a.pixels:
         od = od[rng.choice(len(od), a.pixels, replace=False)]

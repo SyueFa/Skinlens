@@ -19,22 +19,34 @@ BASIS_FILE = Path(__file__).resolve().parent.parent.parent / "models" / "chromop
 _basis = {"inv": None, "mtime": None}
 
 
-def optical_density(bgr):
-    """BGR uint8 → RGB 光學密度 (H, W, 3)。
-    JPEG 存的是 gamma 壓縮後的 sRGB，先還原成線性亮度再取 -log，模型「陰影 = 三通道等量變化」才成立。"""
-    c = bgr[..., ::-1].astype(np.float32) / 255.0
-    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
-    return -np.log(lin + 1.0 / 255.0)
+def optical_density(lin_bgr):
+    """線性亮度 BGR (float，可以大於 1) → RGB 光學密度 (H, W, 3)。
+    要用線性亮度取 -log，模型「陰影 = 三通道等量變化」才成立。用校色後「不截斷」的浮點影像
+    (pp["face_lin"])：校色幅度大時亮部會超過 1，先轉回 8-bit 會被截掉、扭曲色素比例。"""
+    return -np.log(np.maximum(lin_bgr[..., ::-1], 0) + 1.0 / 255.0)
 
 
-def specular_mask(bgr, skin):
-    """反光像素：亮度很高 (V ≥ 皮膚第 98 百分位且 > 200) 且飽和度低 (S < 45)。"""
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    s, v = hsv[..., 1], hsv[..., 2]
+def face_lin(pp):
+    """校色後的線性浮點影像；舊的 pp 沒有時從 8-bit 影像還原。"""
+    if "face_lin" in pp:
+        return pp["face_lin"]
+    c = pp["face"].astype(np.float32) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def invalid_mask(pp, skin):
+    """色素分析要排除的像素：
+      反光：亮度很高 (V ≥ 皮膚第 98 百分位且 > 200/255) 且飽和度低 (S < 45/255)，用不截斷的影像判斷
+      過曝：相機拍的原圖就已經有通道 ≥ 250，顏色資訊已經遺失"""
     if not skin.any():
         return np.zeros(skin.shape, bool)
-    thr = max(200.0, float(np.percentile(v[skin], 98)))
-    m = (v >= thr) & (s < 45) & skin
+    lin = np.maximum(face_lin(pp), 0)
+    s_img = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1 / 2.4) - 0.055)   # sRGB 但不截斷
+    v = s_img.max(2)
+    sat = (v - s_img.min(2)) / (v + 1e-6)
+    thr = max(200 / 255, float(np.percentile(v[skin], 98)))
+    m = (v >= thr) & (sat < 45 / 255) & skin
+    m |= (pp["face_raw"] >= 250).any(2) & skin
     return cv2.dilate(m.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
 
 
@@ -50,22 +62,21 @@ def _inverse():
     return _basis["inv"]
 
 
-def decompose(bgr):
-    """回傳 (黑色素圖, 血紅素圖)；沒有色素方向檔時回傳 None。"""
+def decompose(lin_bgr):
+    """線性亮度影像 → (黑色素圖, 血紅素圖)；沒有色素方向檔時回傳 None。"""
     inv = _inverse()
     if inv is None:
         return None
-    od = optical_density(bgr).reshape(-1, 3).astype(np.float64)
+    od = optical_density(lin_bgr).reshape(-1, 3).astype(np.float64)
     coef = od @ inv.T
-    h, w = bgr.shape[:2]
+    h, w = lin_bgr.shape[:2]
     return coef[:, 0].reshape(h, w).astype(np.float32), coef[:, 1].reshape(h, w).astype(np.float32)
 
 
 def maps(pp):
-    """(黑色素圖, 血紅素圖) 或 None。同一張照片只分離一次，紅色區偵測與色素特徵共用。
-    pp["face"] 已在線性空間校色 (analysis/color.py)，符合這裡的線性亮度假設。"""
+    """(黑色素圖, 血紅素圖) 或 None。同一張照片只分離一次，紅色區偵測與色素特徵共用。"""
     if "_chromo_maps" not in pp:
-        pp["_chromo_maps"] = decompose(pp["face"])
+        pp["_chromo_maps"] = decompose(face_lin(pp))
     return pp["_chromo_maps"]
 
 
@@ -90,8 +101,8 @@ def _excess_area(img, valid, sigma=12, k=2.5):
 
 def features(pp):
     """色素與反光特徵 (dict)。沒有色素方向檔時只回傳反光比例。"""
-    face, skin = pp["face"], pp["skin"] > 0
-    spec = specular_mask(face, skin)
+    skin = pp["skin"] > 0
+    spec = invalid_mask(pp, skin)
     out = {"specular.ratio": float(100 * spec.sum() / max(skin.sum(), 1))}
     mh = maps(pp)
     valid = skin & ~spec

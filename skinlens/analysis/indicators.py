@@ -142,7 +142,7 @@ def detect_red_areas(pp):
     skin = _core(pp)
     if mh is None or skin.sum() < 500:
         return _detect_red_areas_lab(pp)
-    valid = skin & ~chromophore.specular_mask(pp["face"], skin)
+    valid = skin & ~chromophore.invalid_mask(pp, skin)
     hemo = cv2.GaussianBlur(mh[1], (0, 0), 1.2)             # 壓掉感光雜訊 / JPEG 區塊
     base, sig = chromophore.robust_stats(hemo[valid])
     z = (hemo - base) / sig                                   # 高出全臉基準幾個標準差

@@ -158,8 +158,9 @@ def color_normalize(bgr, p=6):
 
 
 def apply_color(pp, illuminant=None):
-    """(重新) 校色：更新 face、gray_clahe、color。illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
-    pp["face"], pp["color"] = color.normalize(pp["face_raw"], pp["polys"], illuminant=illuminant)
+    """(重新) 校色：更新 face、face_lin、gray_clahe、color。illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
+    pp["face_lin"], pp["color"] = color.normalize_linear(pp["face_raw"], pp["polys"], illuminant=illuminant)
+    pp["face"] = color.to_srgb(pp["face_lin"])   # face_lin：不截斷的線性浮點影像，給色素分離用
     pp["gray_clahe"] = clahe_gray(pp["face"])
     pp.pop("_chromo_maps", None)       # 色素分離的快取跟著失效
     return pp
