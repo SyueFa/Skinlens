@@ -50,6 +50,10 @@ if _WRINKLE_LABEL_FILE.exists():
     WRINKLE_SEG_CALIB = (_w["mid"], _w["scale"], _w["eps"])
 
 
+# 紅色區 (RBX 式) 的門檻：單位是「高出全臉血紅素基準幾個標準差 (MAD 換算)」
+RED_Z_DIFFUSE = 2.0     # 大片泛紅 (平滑後)
+RED_Z_FOCAL = 3.0       # 局部紅點 (相對周圍)
+
 def logistic(x, mid, scale):
     return float(100 / (1 + np.exp(-(x - mid) / scale)))
 
@@ -124,7 +128,53 @@ def detect_brown_spots(pp):
 
 
 def detect_red_areas(pp):
-    """紅色區：血管擴張/發炎 (泛紅、酒糟、痘痘發炎、敏感)。Lab 的 a* 明顯高於自己臉部的中位數。"""
+    """紅色區：血管擴張/發炎 (泛紅、酒糟、痘痘發炎、敏感)。仿 VISIA RBX 的流程：
+      1. 反光排除 (VISIA 用交叉偏振光消除表面油光；手機沒有偏振片，改成偵測反光像素後排除)
+      2. 色素分離：線性空間白平衡 → 光學密度 → 血紅素圖 (chromophore.py，Tsumura 1999；VISIA 的 R 通道)
+         黑色素與陰影被分到其他成分，紅黑交雜的痘印也只取血紅素
+      3. 以自己整張臉的血紅素基準 (中位數、MAD) 找三種異常：
+           大片泛紅  平滑後高於全臉基準 (酒糟、敏感泛紅)
+           局部紅點  明顯高於周圍 (發炎丘疹、痘痘)
+           血管線條  血紅素圖上的亮脊線 (擴張的微血管)
+      4. 量化：面積 % (raw)、紅點數 (count)、強度 (異常區平均高出基準幾個標準差)
+    沒有色素方向檔 (models/chromophore.json) 時退回 Lab a* 的舊方法。"""
+    mh = chromophore.maps(pp)
+    skin = _core(pp)
+    if mh is None or skin.sum() < 500:
+        return _detect_red_areas_lab(pp)
+    valid = skin & ~chromophore.specular_mask(pp["face"], skin)
+    hemo = cv2.GaussianBlur(mh[1], (0, 0), 1.2)             # 壓掉感光雜訊 / JPEG 區塊
+    base, sig = chromophore.robust_stats(hemo[valid])
+    z = (hemo - base) / sig                                   # 高出全臉基準幾個標準差
+
+    # 大片泛紅：只和自己的臉比。不用族群的絕對門檻：手機照片光源不受控，白平衡後殘留的色偏
+    # 會投影到血紅素方向，暖光下整張臉都被判成泛紅 (VISIA 能直接比是因為燈光固定)。
+    # 整張臉偏紅的程度留給特徵 chromo.hemoglobin_mean，由校正模型從人工評分學。
+    diffuse = (cv2.GaussianBlur(z, (0, 0), 6) > RED_Z_DIFFUSE) & valid
+    diffuse, _ = _filter_components(diffuse, 80, 10 ** 7)
+
+    local = hemo - cv2.GaussianBlur(hemo, (0, 0), 12)
+    lb, ls = chromophore.robust_stats(local[valid])
+    focal_c = (((local - lb) / ls) > RED_Z_FOCAL) & (z > 1.0) & valid
+    focal_c = cv2.morphologyEx(focal_c.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)) > 0
+    papules, n_pap = _filter_components(focal_c, 12, 400, max_ecc=0.9)
+
+    fr = frangi(np.clip(z, -3, 8) / 8, sigmas=(1.0, 1.5, 2.0), black_ridges=False)
+    fr = fr / (fr[valid].max() + 1e-9)
+    vessels, _ = _filter_components((fr > 0.15) & (z > 1.0) & valid, 10, 3000, min_ecc=0.95, min_len=12)
+
+    mask = diffuse | papules | vessels
+    n_valid = max(int(valid.sum()), 1)
+    raw = 100 * mask.sum() / n_valid
+    intensity = float(z[mask].mean()) if mask.any() else 0.0
+    return _pack("red_areas", raw, n_pap, mask, pp["regions"],
+                 extra={"inflamed_spots": int(n_pap), "intensity": round(intensity, 3),
+                        "diffuse_pct": round(100 * diffuse.sum() / n_valid, 3),
+                        "vessel_pct": round(100 * vessels.sum() / n_valid, 3), "method": "rbx"})
+
+
+def _detect_red_areas_lab(pp):
+    """舊方法：Lab 的 a* 明顯高於自己臉部的中位數。"""
     skin = _core(pp)
     a = cv2.cvtColor(pp["face"], cv2.COLOR_BGR2LAB)[..., 1].astype(np.float32)
     if not skin.any():
@@ -136,7 +186,7 @@ def detect_red_areas(pp):
     # 小而集中的紅點 → 可能是發炎性痘痘
     papules, n_pap = _filter_components((ad > 11) & skin, 12, 400, max_ecc=0.9)
     raw = 100 * mask.sum() / skin.sum()
-    return _pack("red_areas", raw, n_pap, mask, pp["regions"], extra={"inflamed_spots": int(n_pap)})
+    return _pack("red_areas", raw, n_pap, mask, pp["regions"], extra={"inflamed_spots": int(n_pap), "method": "lab"})
 
 
 def detect_wrinkles(pp):
@@ -255,7 +305,7 @@ def feature_vector(results, pp):
         feats[f"{k}.count"] = r["count"]
         for reg, v in r["by_region"].items():
             feats[f"{k}.{reg}"] = v
-        for extra in ("pigment_unevenness", "inflamed_spots"):
+        for extra in ("pigment_unevenness", "inflamed_spots", "intensity", "diffuse_pct", "vessel_pct"):
             if extra in r:
                 feats[f"{k}.{extra}"] = r[extra]
     skin = pp["skin"] > 0
