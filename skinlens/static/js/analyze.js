@@ -44,6 +44,8 @@ $(function () {
     $("#cam-title").text("開啟相機中…"); $("#cam-count").text("");
     SLCapture.start({
       video: document.getElementById("cam-video"),
+      canvas: document.getElementById("cam-mesh"),     // 即時臉部特徵點
+      guide: document.getElementById("cam-guide"),     // 引導框：對正變綠色
       onStatus: (title, count) => { $("#cam-title").text(title); $("#cam-count").text(count); },
       onDone: ({still, frames, sides}) => {
         camUi(false);

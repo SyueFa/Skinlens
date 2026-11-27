@@ -69,7 +69,8 @@ def _detect_mediapipe(bgr):
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     with _mp_lock:   # 偵測器不能被多個執行緒同時使用 (Flask 會平行處理請求)
         if _mp_landmarker is None:
-            opts = vision.FaceLandmarkerOptions(base_options=BaseOptions(model_asset_path=str(task)), num_faces=1)
+            opts = vision.FaceLandmarkerOptions(base_options=BaseOptions(model_asset_path=str(task)), num_faces=1,
+                                                output_facial_transformation_matrixes=True)
             _mp_landmarker = vision.FaceLandmarker.create_from_options(opts)
         res = _mp_landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
     if not res.face_landmarks:
@@ -83,7 +84,18 @@ def _detect_mediapipe(bgr):
     }
     polys = {"oval": pts[MP_FACE_OVAL], "eye_l": pts[MP_EYE_L], "eye_r": pts[MP_EYE_R],
              "brow_l": pts[MP_BROW_L], "brow_r": pts[MP_BROW_R], "lips": pts[MP_LIPS]}
-    return {"detector": "mediapipe", "kp": kp, "polys": polys}
+    pose = head_pose(res.facial_transformation_matrixes[0]) if res.facial_transformation_matrixes else None
+    return {"detector": "mediapipe", "kp": kp, "polys": polys, "pose": pose}
+
+
+def head_pose(matrix):
+    """MediaPipe 的臉部轉換矩陣 (標準臉 → 相機) → 頭部角度 (度)。網頁拍照流程 (capture.js) 用同一套算法。
+      yaw   左右轉：負 = 鼻子朝影像左邊 (網頁相機存的影像不鏡像，影像左邊 = 本人右邊)
+      pitch 上下：負 = 抬下巴 / 手機拿太低 (看得到鼻孔)；正 = 低頭 / 手機拿太高
+    只用來判斷「有沒有正對鏡頭」。依雙眼轉正只修得了歪頭 (roll)，左右轉、上下仰俯是立體的，修不回來。"""
+    R = np.asarray(matrix, float)[:3, :3]
+    return {"yaw": round(float(np.degrees(np.arcsin(np.clip(-R[2, 0], -1, 1)))), 1),
+            "pitch": round(float(np.degrees(np.arctan2(R[2, 1], R[2, 2]))), 1)}
 
 
 def _detect_haar(bgr):
@@ -371,6 +383,7 @@ def preprocess(bgr, illuminant=None):
     q = quality_check(face_raw, skin, face_px)
     q["roll_deg"] = round(roll, 1)
     q["detector"] = det["detector"]
+    q["pose"] = det.get("pose")
     pp = {"face_raw": face_raw, "face_unet": face_unet,   # face_unet：皺紋 U-Net 專用 (訓練時的輸入格式)
           "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q,
           "polys": det["polys"],   # 臉部座標的五官輪廓 (眼、眉、唇、臉框)；Haar 備援時為 None

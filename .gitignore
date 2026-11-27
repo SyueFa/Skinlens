@@ -19,3 +19,6 @@ informations/*
 # 編輯器
 .vscode/
 .idea/
+
+# MediaPipe 網頁版 (用 scripts/download_models.py 取得)
+skinlens/static/vendor/mediapipe/

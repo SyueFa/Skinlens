@@ -21,7 +21,7 @@
 ```bash
 uv sync                                   # 建立 .venv 並安裝套件 (Python 3.12)
 cp .env.example .env                      # 修改 SECRET_KEY、管理員帳密
-uv run python scripts/download_models.py  # 下載 MediaPipe 臉部模型 (3.7MB)
+uv run python scripts/download_models.py  # 下載 MediaPipe 臉部模型 (3.7MB) 與網頁版偵測程式 (約 15MB，拍照引導用)
 uv run python app.py                      # → http://localhost:5000
 ```
 
@@ -62,7 +62,7 @@ skinlens/
     knowledge.py               指標意義、原因、依嚴重度的建議、就醫提醒
   templates/  static/          前端 (Bootstrap + jQuery)
 scripts/
-  download_models.py           下載 MediaPipe 模型
+  download_models.py           下載 MediaPipe 模型與網頁版偵測程式
   import_ffhq_wrinkle.py       匯入 FFHQ-Wrinkle 人工皺紋標註
   import_kaggle_skin.py        匯入 Kaggle 人工評分 (毛孔、紅色區、斑點、紋理)
   import_folder.py             批次匯入照片 + labels.csv

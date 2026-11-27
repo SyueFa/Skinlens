@@ -26,6 +26,10 @@ SHINE_WARN_PCT = 12.0
 # 左右臉亮度差 (曝光級數，1 級 = 亮 2 倍) 超過這個值就提醒重拍：FFHQ 參考族群第 90 百分位約 1.18、
 # 第 95 約 1.43；一般室內正面光的手機自拍約 0.4–0.9。大範圍明暗會做光照平整，但硬陰影 (鼻影、側光) 修不掉
 LIGHT_WARN_STOPS = 1.3
+# 正臉照片的頭部角度 (度) 超過就提醒重拍。網頁拍照流程會先引導到 ±10° 內才拍 (capture.js)，
+# 這裡是手動上傳照片的保險。FFHQ 參考族群 (網路照片) 左右轉 P5–P95 約 −21~+17、上下 −13~+9；
+# 一般手機自拍左右 1–3°、上下 −5~−11 (手機拿得比臉低)
+POSE_WARN_YAW, POSE_WARN_PITCH = 15.0, 15.0
 UV_NOTICE = ("紫外線色斑、紫質是實驗性功能：需要在 365nm UV 燈下拍攝，尚未經人工標註校正，結果僅供參考。"
              "如果照片是一般光線拍的，這兩項分數沒有意義。")
 
@@ -49,6 +53,24 @@ def _session_color(pp, frames):
     if illum is not None:
         apply_color(pp, illum)
     pp["color"]["session"] = info
+
+
+def pose_warning(pose):
+    """臉沒有正對鏡頭時的提醒文字；正對或量不到 (Haar 備援偵測) 時回傳 None。"""
+    if not pose:
+        return None
+    yaw, pitch = pose["yaw"], pose["pitch"]
+    issues = []
+    if abs(yaw) > POSE_WARN_YAW:
+        issues.append(f"左右轉了約 {abs(yaw):.0f} 度")
+    if pitch < -POSE_WARN_PITCH:
+        issues.append(f"下巴抬高約 {-pitch:.0f} 度 (手機可能拿太低)")
+    elif pitch > POSE_WARN_PITCH:
+        issues.append(f"低頭約 {pitch:.0f} 度 (手機可能拿太高)")
+    if not issues:
+        return None
+    return ("臉沒有正對鏡頭：" + "、".join(issues) + "，臉部分區會偏掉，一邊的臉頰或額頭被壓縮。"
+            "建議手機與眼睛同高、臉正對鏡頭後重拍")
 
 
 def extract(data: bytes, lighting="standard", frames=None, device=None):
@@ -75,6 +97,10 @@ def extract(data: bytes, lighting="standard", frames=None, device=None):
         pp["quality"]["warnings"].append(
             f"光線不均：左右臉亮度差約 {2 ** light['lr_stops']:.1f} 倍，陰影可能被誤判成斑點或皺紋。"
             "建議面對窗戶或燈光、讓光線從正前方照，避免側光與頭頂光後重拍")
+        pp["quality"]["ok"] = False
+    pose_msg = pose_warning(pp["quality"].get("pose"))
+    if pose_msg:
+        pp["quality"]["warnings"].append(pose_msg)
         pp["quality"]["ok"] = False
     learned = trainer.predict(feats)
     for k, r in results.items():

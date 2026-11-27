@@ -22,7 +22,7 @@
             <i class="bi bi-camera-video"></i> 用相機拍照 (建議)
           </button>
           <div class="small text-body-secondary mb-3" id="cam-hint">
-            拍之前先洗臉擦乾、不擦保養品。先看著鏡頭 5 秒 (用眼白自動校正色彩)，聽到「請閉上眼睛」後閉眼，嗶 3 聲後拍照。請開啟聲音。
+            拍之前先洗臉擦乾、不擦保養品。手機拿到和眼睛同高，依提示把臉對正框線 (框變綠色就開始)，再看著鏡頭 5 秒 (用眼白自動校正色彩)，聽到「請閉上眼睛」後閉眼，嗶 3 聲後拍照。請開啟聲音。
             要追蹤前後變化，請固定用同一支手機拍。
             <div class="form-check mt-1">
               <input class="form-check-input" type="checkbox" id="cam-sides" checked>
@@ -31,7 +31,8 @@
           </div>
           <div class="sl-cam mb-3" id="cam" hidden>
             <video id="cam-video" playsinline muted></video>
-            <div class="sl-cam-guide" aria-hidden="true"></div>
+            <canvas class="sl-cam-mesh" id="cam-mesh" aria-hidden="true"></canvas>
+            <div class="sl-cam-guide" id="cam-guide" aria-hidden="true"></div>
             <div class="sl-cam-msg" role="status" aria-live="assertive">
               <div id="cam-title" class="fw-bold"></div>
               <div id="cam-count" class="sl-cam-count tabular"></div>
@@ -107,6 +108,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/facepose.js') }}"></script>
 <script src="{{ url_for('static', filename='js/capture.js') }}"></script>
 <script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
 {% endblock %}
