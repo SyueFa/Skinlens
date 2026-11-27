@@ -34,11 +34,11 @@ for i, pid in enumerate(ids):
         pp = preprocess(load_image((Path(a.images) / f"{pid}.png").read_bytes()))
     except ValueError:
         failed.append(pid); continue
-    h, w = pp["face"].shape[:2]
+    h, w = pp["face_unet"].shape[:2]
     m = cv2.imread(str(Path(a.masks) / f"{pid}.png"), cv2.IMREAD_GRAYSCALE)
     m = cv2.warpAffine(m, pp["warp"], (w, h), flags=cv2.INTER_LINEAR, borderValue=0) > 127
     d.mkdir(exist_ok=True)
-    cv2.imwrite(str(d / "face.png"), pp["face"])
+    cv2.imwrite(str(d / "face.png"), pp["face_unet"])   # U-Net 的輸入格式 (舊版校色)
     cv2.imwrite(str(d / "mask.png"), m.astype(np.uint8) * 255)
     cv2.imwrite(str(d / "frangi.png"), detect_wrinkles(pp)["mask"].astype(np.uint8) * 255)
     ok.append(pid)

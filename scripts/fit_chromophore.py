@@ -11,6 +11,7 @@
 import argparse, json, sys
 from datetime import datetime
 from pathlib import Path
+import cv2
 import numpy as np
 from sklearn.decomposition import FastICA
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,20 +25,25 @@ ap.add_argument("--images", type=int, default=300)
 ap.add_argument("--pixels", type=int, default=3000, help="每張照片取樣的皮膚像素數")
 a = ap.parse_args()
 
+POP_SIGMA = 6        # 族群基準的平滑尺度，和 indicators.detect_red_areas 的大片泛紅相同
 rng = np.random.default_rng(0)
 docs = list(images.find({"source": a.source}, {"raw_path": 1}).limit(a.images))
-samples = []
+samples, od_maps = [], []
+core_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))   # 和 indicators._core 相同
 for d in docs:
     try:
         pp = preprocess(load_image(Path(d["raw_path"]).read_bytes()))
     except (ValueError, FileNotFoundError):
         continue
-    skin = pp["skin"] > 0
-    valid = skin & ~specular_mask(pp["face"], skin)
-    od = optical_density(pp["face"])[valid]
+    skin = cv2.erode(pp["skin"], core_k) > 0
+    face = pp["face"]                 # 校色後的影像 (線性空間)，和網站分析時用的相同
+    valid = skin & ~specular_mask(face, skin)
+    od_img = optical_density(face)
+    od = od_img[valid]
     if len(od) > a.pixels:
         od = od[rng.choice(len(od), a.pixels, replace=False)]
     samples.append(od)
+    od_maps.append((od_img.astype(np.float16), valid))   # 第二步算族群基準用
 X = np.concatenate(samples).astype(np.float64)
 print(f"{len(samples)} 張照片、{len(X):,} 個皮膚像素")
 
@@ -67,11 +73,30 @@ hemo, mel = vecs[hi], vecs[1 - hi]
 if hemo_score(hemo) <= 0 or mel_score(mel) <= 0:
     sys.exit(f"無法辨認色素方向 (hemo={hemo.round(3)}, mel={mel.round(3)})，請增加照片數再試")
 
+# 族群色素分布 (僅供參考，網站不使用)：用剛估出的方向分離每張臉，統計「平滑後」的色素濃度百分位。
+# 曝光亮暗不影響色素濃度 (落在 (1,1,1) 方向)，但白平衡後殘留的光源色偏會，
+# 實測暖光照片整張臉都會超過 P95，所以不拿來當偵測門檻。
+inv = np.linalg.inv(np.column_stack([mel, hemo, np.ones(3)]))
+pooled = {"melanin": [], "hemoglobin": []}
+for od_img, valid in od_maps:
+    coef = od_img.reshape(-1, 3).astype(np.float64) @ inv.T
+    for i, name in enumerate(("melanin", "hemoglobin")):
+        m = cv2.GaussianBlur(coef[:, i].reshape(valid.shape).astype(np.float32), (0, 0), POP_SIGMA)
+        v = m[valid]
+        pooled[name].append(v[rng.choice(len(v), min(len(v), a.pixels), replace=False)])
+reference = {}
+for name, vals in pooled.items():
+    v = np.concatenate(vals)
+    reference[name] = {"blur_sigma": POP_SIGMA, **{f"p{p}": round(float(np.percentile(v, p)), 5) for p in (50, 90, 95, 97)}}
+
 out = {"source": a.source, "n_images": len(samples), "n_pixels": int(len(X)),
        "created_at": datetime.now().isoformat(timespec="seconds"),
        "melanin": [round(float(x), 5) for x in mel], "hemoglobin": [round(float(x), 5) for x in hemo],
-       "note": "RGB 光學密度空間中與 (1,1,1) 垂直平面上的方向 (Tsumura et al. 1999)"}
+       "reference": reference,
+       "note": "RGB 光學密度空間中與 (1,1,1) 垂直平面上的方向 (Tsumura et al. 1999)；"
+               "reference = 族群皮膚像素 (高斯平滑後) 的色素濃度百分位"}
 BASIS_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 print(f"黑色素方向 (R,G,B) = {np.round(mel, 3)}")
 print(f"血紅素方向 (R,G,B) = {np.round(hemo, 3)}")
+print(f"族群基準：{reference}")
 print(f"→ {BASIS_FILE}")

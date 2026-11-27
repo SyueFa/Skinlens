@@ -150,7 +150,7 @@ def _detect_wrinkles_unet(pp):
     """U-Net 畫出皺紋線 → 皺紋量 = 線條像素 ÷ 臉寬² (和人工答案同公式、同換算)。
     FFHQ-Wrinkle 測試組：Dice 0.618 (Frangi 0.108)，皺紋量和人工相關 0.87。"""
     reg = pp["regions"]
-    mask = wrinkle_seg.predict_mask(pp["face"])
+    mask = wrinkle_seg.predict_mask(pp["face_unet"])   # U-Net 用訓練時的舊版校色輸入
     kp = pp["kp"]
     face_w = max(float(kp["face_r"][0] - kp["face_l"][0]), 1.0)
     raw = float(mask.sum()) / face_w ** 2
