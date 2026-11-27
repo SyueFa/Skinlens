@@ -61,6 +61,20 @@ def decompose(bgr):
     return coef[:, 0].reshape(h, w).astype(np.float32), coef[:, 1].reshape(h, w).astype(np.float32)
 
 
+def maps(pp):
+    """(黑色素圖, 血紅素圖) 或 None。同一張照片只分離一次，紅色區偵測與色素特徵共用。
+    pp["face"] 已在線性空間校色 (analysis/color.py)，符合這裡的線性亮度假設。"""
+    if "_chromo_maps" not in pp:
+        pp["_chromo_maps"] = decompose(pp["face"])
+    return pp["_chromo_maps"]
+
+
+def robust_stats(v):
+    """中位數與 MAD 換算的標準差 (不受少數極端值影響)。"""
+    med = float(np.median(v))
+    return med, 1.4826 * float(np.median(np.abs(v - med))) + 1e-6
+
+
 def _excess_area(img, valid, sigma=12, k=2.5):
     """比周圍高很多的區塊 (局部色素集中) 占皮膚面積 % 與塊數。門檻用自己臉上的 MAD，不受整體膚色影響。"""
     d = img - cv2.GaussianBlur(img, (0, 0), sigma)
@@ -79,11 +93,11 @@ def features(pp):
     face, skin = pp["face"], pp["skin"] > 0
     spec = specular_mask(face, skin)
     out = {"specular.ratio": float(100 * spec.sum() / max(skin.sum(), 1))}
-    maps = decompose(face)
+    mh = maps(pp)
     valid = skin & ~spec
-    if maps is None or valid.sum() < 500:
+    if mh is None or valid.sum() < 500:
         return out
-    for name, img in zip(("melanin", "hemoglobin"), maps):
+    for name, img in zip(("melanin", "hemoglobin"), mh):
         v = img[valid]
         p50, p95 = np.percentile(v, [50, 95])
         area, n = _excess_area(img, valid)

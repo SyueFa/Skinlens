@@ -18,10 +18,25 @@
       </div>
       <div class="col-lg-6">
         <div class="sl-card p-4" id="form-card">
+          <button class="btn btn-primary w-100 mb-2 py-2" id="cam-start" type="button">
+            <i class="bi bi-camera-video"></i> 用相機拍照 (建議)
+          </button>
+          <div class="small text-body-secondary mb-3" id="cam-hint">
+            先看著鏡頭 5 秒 (用眼白自動校正色彩)，聽到「請閉上眼睛」後閉眼，嗶 3 聲後拍照。請開啟聲音。
+          </div>
+          <div class="sl-cam mb-3" id="cam" hidden>
+            <video id="cam-video" playsinline muted></video>
+            <div class="sl-cam-guide" aria-hidden="true"></div>
+            <div class="sl-cam-msg" role="status" aria-live="assertive">
+              <div id="cam-title" class="fw-bold"></div>
+              <div id="cam-count" class="sl-cam-count tabular"></div>
+            </div>
+            <button class="btn btn-sm btn-light sl-cam-cancel" id="cam-cancel" type="button">取消</button>
+          </div>
           <div class="sl-drop mb-3" id="drop" tabindex="0" role="button" aria-label="選擇或拍攝臉部照片">
             <div id="drop-empty">
               <i class="bi bi-camera fs-1 d-block mb-2"></i>
-              <div class="fw-bold text-body">點這裡上傳或拍攝正面照片</div>
+              <div class="fw-bold text-body">或上傳一張正面照片</div>
               <div class="small">也可以把照片拖曳進來 · JPG / PNG，最大 15MB</div>
             </div>
             <img id="preview" class="d-none" alt="預覽照片">
@@ -85,4 +100,7 @@
   <div class="text-center mt-4"><button class="btn btn-outline-primary" id="again"><i class="bi bi-arrow-repeat"></i> 再分析一張</button></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/analyze.js') }}"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/capture.js') }}"></script>
+<script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
+{% endblock %}

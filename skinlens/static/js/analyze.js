@@ -1,6 +1,6 @@
-/* 首頁：選照片 → 上傳 /api/analyze → 顯示報告 */
+/* 首頁：選照片 (或相機拍照流程) → 上傳 /api/analyze → 顯示報告 */
 $(function () {
-  let fileObj = null, timer = null;
+  let fileObj = null, frameBlobs = [], timer = null;
   const prof = window.CURRENT_USER?.profile || {};
   if (prof.age) $("#age").val(prof.age);
   if (prof.gender) $("#gender").val(prof.gender);
@@ -9,11 +9,13 @@ $(function () {
   // 選 UV 光源時提醒：需要 365nm UV 燈拍攝，且尚未校正
   $("#lighting").on("change", function () { $("#uv-warn").prop("hidden", this.value !== "uv"); });
 
-  function pick(f) {
+  // frames：相機拍照流程的睜眼影格 (後端用眼白校色)；手動上傳的照片沒有影格
+  function pick(f, frames = []) {
     if (!f) return;
     if (!f.type.startsWith("image/")) { showErr("請選擇圖片檔 (JPG、PNG)"); return; }
     if (f.size > 15 * 1024 * 1024) { showErr("照片太大，請小於 15MB"); return; }
     fileObj = f;
+    frameBlobs = frames;
     $("#preview").attr("src", URL.createObjectURL(f)).removeClass("d-none");
     $("#drop-empty").addClass("d-none");
     $("#drop").addClass("has-file");
@@ -28,6 +30,29 @@ $(function () {
     .on("dragleave drop", () => $("#drop").removeClass("dragover"))
     .on("drop", e => { e.preventDefault(); pick(e.originalEvent.dataTransfer.files[0]); });
   $("#file").on("click", e => e.stopPropagation()).on("change", e => pick(e.target.files[0]));
+
+  // 相機拍照流程 (capture.js)：拍完自動開始分析
+  function camUi(on) {
+    $("#cam").prop("hidden", !on);
+    $("#drop, #cam-start, #cam-hint").toggleClass("d-none", on);
+    $("#go").toggleClass("d-none", on);
+  }
+  $("#cam-start").on("click", function () {
+    $("#err").addClass("d-none");
+    camUi(true);
+    $("#cam-title").text("開啟相機中…"); $("#cam-count").text("");
+    SLCapture.start({
+      video: document.getElementById("cam-video"),
+      onStatus: (title, count) => { $("#cam-title").text(title); $("#cam-count").text(count); },
+      onDone: ({still, frames}) => {
+        camUi(false);
+        pick(new File([still], "capture.jpg", {type: "image/jpeg"}), frames);
+        $("#go").trigger("click");
+      },
+      onError: msg => { camUi(false); showErr(msg); },
+    });
+  });
+  $("#cam-cancel").on("click", () => { SLCapture.stop(); camUi(false); });
 
   // 分析進度 (後端是一次完成的，這裡依時間推進讓使用者知道在做什麼)
   function progress(start) {
@@ -48,6 +73,7 @@ $(function () {
     if (!fileObj) return;
     const fd = new FormData();
     fd.append("file", fileObj);
+    frameBlobs.forEach((b, i) => fd.append("frames", b, `frame${i}.jpg`));
     ["lighting", "age", "gender", "skin_type"].forEach(k => { const v = $("#" + k).val(); if (v) fd.append(k, v); });
     fd.append("consent", $("#consent").is(":checked"));
     $("#go").prop("disabled", true).html('<span class="spinner-border spinner-border-sm"></span> 分析中…');

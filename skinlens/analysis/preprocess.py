@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 from ..config import MODEL_DIR, FACE_SIZE
+from . import color
 
 # ---------- MediaPipe 臉部網格的關鍵點編號 ----------
 MP_FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377,
@@ -148,11 +149,20 @@ def align_and_crop(bgr, det):
 
 
 def color_normalize(bgr, p=6):
-    """Shades-of-Gray 白平衡 + 亮度標準化：降低不同燈光/手機造成的色偏，讓紅/棕色判斷可比較。"""
+    """舊版校色 (sRGB 上的 Shades-of-Gray)。只留給皺紋 U-Net (用這個輸入訓練的) 與皮膚遮罩用；
+    指標分析改用 color.normalize (眼白 / 拍照流程，不會洗掉膚色)。"""
     f = bgr.astype(np.float32) + 1
     illum = np.power(np.mean(np.power(f, p), axis=(0, 1)), 1 / p)
     f = f * (illum.mean() / illum)
     return np.clip(f - 1, 0, 255).astype(np.uint8)
+
+
+def apply_color(pp, illuminant=None):
+    """(重新) 校色：更新 face、gray_clahe、color。illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
+    pp["face"], pp["color"] = color.normalize(pp["face_raw"], pp["polys"], illuminant=illuminant)
+    pp["gray_clahe"] = clahe_gray(pp["face"])
+    pp.pop("_chromo_maps", None)       # 色素分離的快取跟著失效
+    return pp
 
 
 def clahe_gray(bgr):
@@ -262,16 +272,21 @@ def quality_check(face, skin, face_px):
             "ok": len(warnings) == 0}
 
 
-def preprocess(bgr):
+def preprocess(bgr, illuminant=None):
+    """illuminant：已知光源 (拍照流程)；不給就由照片自己估 (眼白，不行再用 SoG)。"""
     det = detect_face(bgr)
     if det is None:
         raise ValueError("偵測不到臉部，請上傳正面、清楚、無遮擋的臉部照片")
     face_raw, det, roll, face_px, warp = align_and_crop(bgr, det)
-    face = color_normalize(face_raw)
-    skin, regions, ipd = build_masks(face, det)
+    face_unet = color_normalize(face_raw)
+    # 皮膚遮罩用舊版校色影像建 (自適應膚色模型，只決定「哪裡是皮膚」)：不隨校色方法改變，
+    # 拍照流程重新校色時也不用重算
+    skin, regions, ipd = build_masks(face_unet, det)
     q = quality_check(face_raw, skin, face_px)
     q["roll_deg"] = round(roll, 1)
     q["detector"] = det["detector"]
-    return {"face_raw": face_raw, "face": face, "gray_clahe": clahe_gray(face),
-            "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q,
-            "warp": warp}   # 2×3 仿射矩陣：原始照片座標 → 轉正裁切後的臉部座標
+    pp = {"face_raw": face_raw, "face_unet": face_unet,   # face_unet：皺紋 U-Net 專用 (訓練時的輸入格式)
+          "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q,
+          "polys": det["polys"],   # 臉部座標的五官輪廓 (眼、眉、唇、臉框)；Haar 備援時為 None
+          "warp": warp}            # 2×3 仿射矩陣：原始照片座標 → 轉正裁切後的臉部座標
+    return apply_color(pp, illuminant)   # face：校色後影像，所有指標都用這張

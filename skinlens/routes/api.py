@@ -7,6 +7,7 @@ from ..analysis.knowledge import INDICATORS as KB, LEVELS, GENERAL_TIPS, DISCLAI
 from ..services import analyzer
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+MAX_FRAMES = 12      # 拍照流程最多接收幾張睜眼影格
 
 
 def _int_or_none(v, lo, hi):
@@ -32,8 +33,10 @@ def analyze():
     gender = form.get("gender") if form.get("gender") in ("F", "M", "other") else prof.get("gender")
     skin_type = form.get("skin_type") or prof.get("skin_type")
     consent = form.get("consent") in ("true", "1", "on")
+    # 網頁拍照流程：file = 閉眼照片，frames = 拍照前睜眼看鏡頭時擷取的影格 (用眼白校色)
+    frames = [b for b in (fr.read() for fr in request.files.getlist("frames")[:MAX_FRAMES]) if b]
     try:
-        report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user)
+        report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user, frames=frames)
     except ValueError as e:          # 讀不到圖、找不到臉等
         return jsonify(error=str(e)), 422
     return jsonify(report)
