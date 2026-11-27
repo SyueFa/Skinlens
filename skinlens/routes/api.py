@@ -35,8 +35,10 @@ def analyze():
     consent = form.get("consent") in ("true", "1", "on")
     # 網頁拍照流程：file = 閉眼照片，frames = 拍照前睜眼看鏡頭時擷取的影格 (用眼白校色)
     frames = [b for b in (fr.read() for fr in request.files.getlist("frames")[:MAX_FRAMES]) if b]
+    device = (form.get("device") or "").strip()[:60] or None   # 網頁相機沒有 EXIF，由前端從瀏覽器資訊推測
     try:
-        report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user, frames=frames)
+        report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user,
+                                  frames=frames, device=device)
     except ValueError as e:          # 讀不到圖、找不到臉等
         return jsonify(error=str(e)), 422
     return jsonify(report)
@@ -56,7 +58,7 @@ def history():
     rows = analyses.find({"user_id": g.user["_id"]}, {"report": 0}).sort("created_at", -1).limit(200)
     return jsonify([{
         "id": str(a["_id"]), "created_at": a["created_at"].isoformat(), "lighting": a["lighting"],
-        "overall_score": a["overall_score"], "summary": a["summary"],
+        "overall_score": a["overall_score"], "summary": a["summary"], "device": a.get("device"),
         "scores": {k: round(100 - v["severity"], 1) for k, v in a["results"].items()},
     } for a in rows])
 

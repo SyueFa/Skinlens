@@ -120,5 +120,17 @@ window.SLCapture = (function () {
     onDone({still, frames});
   }
 
-  return {start, stop};
+  // 網頁相機拍的照片沒有 EXIF，從瀏覽器資訊推測裝置 (Android 會帶型號代碼，iPhone 只知道是 iPhone)，
+  // 讓歷史紀錄能提醒「兩次用不同手機拍」
+  function deviceLabel() {
+    const ua = navigator.userAgent;
+    const android = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/);
+    if (android && android[1] !== "K") return android[1].trim();   // Chrome 精簡 UA 時型號會變成 "K"
+    if (/iPhone/.test(ua)) return "iPhone";
+    if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+    if (/Android/.test(ua)) return "Android";
+    return /Mac/.test(ua) ? "Mac 網路攝影機" : /Windows/.test(ua) ? "Windows 網路攝影機" : null;
+  }
+
+  return {start, stop, deviceLabel};
 })();

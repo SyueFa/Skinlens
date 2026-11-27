@@ -67,6 +67,7 @@ const SL = (() => {
             <div class="small text-body-secondary">
               ${esc(LIGHTING[data.lighting] || data.lighting)} · 臉部偵測：${esc(q.detector === "mediapipe" ? "MediaPipe 478 點" : "OpenCV")}
               · 清晰度 ${q.blur ?? "-"} · 亮度 ${q.brightness ?? "-"} · 校色：${esc(colorLabel(data.color))}
+              ${q.device ? ` · 裝置：${esc(q.device)}` : ""}
             </div>
             ${data.saved_to_history ? `<div class="small mt-2"><i class="bi bi-check2-circle text-success"></i> 已存到 <a href="/history">我的紀錄</a></div>` : ""}
             ${data.saved_to_history === false && !window.CURRENT_USER ? `<div class="small mt-2 text-body-secondary"><i class="bi bi-info-circle"></i> <a href="/register">註冊會員</a>就能保存每次結果、追蹤保養前後變化</div>` : ""}

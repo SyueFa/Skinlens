@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from ..config import UPLOAD_DIR, PROC_DIR, HISTORY_DIR, MIN_PEERS
 from ..db import subjects, images, analyses, now
-from ..analysis.preprocess import load_image, preprocess, apply_color
+from ..analysis.preprocess import load_image, preprocess, apply_color, device_model
 from ..analysis import color
 from ..analysis.indicators import analyze_all, overlay, feature_vector, COLORS
 from ..analysis.knowledge import INDICATORS as KB, GENERAL_TIPS, DISCLAIMER, level_of
@@ -40,10 +40,12 @@ def _session_color(pp, frames):
     pp["color"]["session"] = info
 
 
-def extract(data: bytes, lighting="standard", frames=None):
+def extract(data: bytes, lighting="standard", frames=None, device=None):
     """影像 → (前處理結果, 各指標結果, 特徵向量)。模型校正也在這裡套用。
-    frames：網頁拍照流程的睜眼影格 (JPEG bytes)，用來校色閉眼照片。"""
+    frames：網頁拍照流程的睜眼影格 (JPEG bytes)，用來校色閉眼照片。
+    device：照片沒有 EXIF 時 (網頁相機) 由前端提供的裝置名稱。"""
     pp = preprocess(load_image(data))
+    pp["quality"]["device"] = device_model(data) or device
     if frames:
         _session_color(pp, frames)
     results = analyze_all(pp, lighting)
@@ -147,10 +149,10 @@ def strip_images(report):
 
 
 def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=None, consent=False, user=None,
-            frames=None):
+            frames=None, device=None):
     """網站上傳分析。會員 → 存入歷史紀錄；勾選同意 → 照片另存訓練資料池。
     frames：網頁拍照流程的睜眼影格，用來校色閉眼照片。"""
-    pp, results, feats = extract(data, lighting, frames)
+    pp, results, feats = extract(data, lighting, frames, device)
     report = build_report(pp, results, age, lighting)
 
     image_id = None
@@ -160,7 +162,7 @@ def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=N
     analysis_id = None
     if user or consent:
         doc = {"user_id": user["_id"] if user else None, "image_id": image_id, "lighting": lighting,
-               "age": age, "gender": gender, "skin_type": skin_type,
+               "age": age, "gender": gender, "skin_type": skin_type, "device": pp["quality"]["device"],
                "overall_score": report["overall_score"], "summary": report["summary"],
                "results": {k: {"severity": r["severity"], "raw": r["raw"], "count": r["count"], "source": r["source"]}
                            for k, r in results.items()},

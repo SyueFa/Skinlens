@@ -74,6 +74,7 @@ $(function () {
     const fd = new FormData();
     fd.append("file", fileObj);
     frameBlobs.forEach((b, i) => fd.append("frames", b, `frame${i}.jpg`));
+    if (frameBlobs.length && SLCapture.deviceLabel()) fd.append("device", SLCapture.deviceLabel());
     ["lighting", "age", "gender", "skin_type"].forEach(k => { const v = $("#" + k).val(); if (v) fd.append(k, v); });
     fd.append("consent", $("#consent").is(":checked"));
     $("#go").prop("disabled", true).html('<span class="spinner-border spinner-border-sm"></span> 分析中…');

@@ -27,6 +27,20 @@ _mp_lock = threading.Lock()
 _haar = None
 
 
+def device_model(data: bytes):
+    """照片 EXIF 裡的拍攝裝置 (例如 "Apple iPhone 18 Pro Max")；沒有 EXIF (網頁相機、截圖) 時回傳 None。
+    不同手機的調色風格不同，追蹤前後變化時要提醒使用者固定用同一支。"""
+    import io
+    try:
+        ex = Image.open(io.BytesIO(data)).getexif()
+    except Exception:
+        return None
+    make, model = (str(ex.get(t) or "").strip() for t in (271, 272))
+    if not model:
+        return None
+    return model if model.lower().startswith(make.lower()) else f"{make} {model}".strip()
+
+
 def load_image(path_or_bytes) -> np.ndarray:
     """讀圖並依 EXIF 轉正 (手機照片常見問題)，回傳 BGR。"""
     import io
