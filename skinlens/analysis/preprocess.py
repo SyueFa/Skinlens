@@ -172,12 +172,83 @@ def color_normalize(bgr, p=6):
 
 
 def apply_color(pp, illuminant=None):
-    """(重新) 校色：更新 face、face_lin、gray_clahe、color。illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
+    """(重新) 校色：更新 face、face_lin、face_flat、gray_clahe、color、light。
+    illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
     pp["face_lin"], pp["color"] = color.normalize_linear(pp["face_raw"], pp["polys"], illuminant=illuminant)
     pp["face"] = color.to_srgb(pp["face_lin"])   # face_lin：不截斷的線性浮點影像，給色素分離用
-    pp["gray_clahe"] = clahe_gray(pp["face"])
+    flat_lin, pp["light"] = flatten_lighting(pp)
+    pp["face_flat"] = color.to_srgb(flat_lin)    # 光照平整後的影像：斑點、棕色斑、紋理、毛孔用
+    pp["gray_clahe"] = clahe_gray(pp["face_flat"])
     pp.pop("_chromo_maps", None)       # 色素分離的快取跟著失效
     return pp
+
+
+# ---------------------------------------------------------------- 光照平整 / 光線均勻度
+# 光照場的平滑尺度 (× 瞳距)：比斑點、毛孔、皺紋大很多 (瞳距約 200 px → σ 50 px)，
+# 只留下光線方向造成的大範圍明暗 (半邊臉暗、頭頂光讓下半臉暗)
+SHADING_SIGMA_IPD = 0.25
+
+
+def _light_mask(pp):
+    """估光照場用的皮膚範圍。皮膚遮罩會排除太暗的像素，陰影那半邊臉常被整片剔掉 → 估不到也補不到；
+    這裡改用臉框內、扣掉五官，再用顏色 (a*b* 接近自己的膚色) 排除頭髮、鬍子，不限亮度。"""
+    skin = pp["skin"] > 0
+    polys = pp.get("polys")
+    if not polys or skin.sum() < 500:
+        return skin
+    shape = skin.shape
+    oval = np.zeros(shape, np.uint8)
+    cv2.fillPoly(oval, [polys["oval"].astype(np.int32)], 255)
+    excl = np.zeros(shape, np.uint8)
+    for k in ("eye_l", "eye_r", "brow_l", "brow_r", "lips"):
+        cv2.fillPoly(excl, [polys[k].astype(np.int32)], 255)
+    excl = cv2.dilate(excl, np.ones((int(pp["ipd"] * 0.08) | 1,) * 2, np.uint8))
+    lab = cv2.cvtColor(pp["face"], cv2.COLOR_BGR2LAB).astype(np.float32)
+    mu = np.median(lab[skin][:, 1:], axis=0)
+    d = np.linalg.norm(lab[..., 1:] - mu, axis=-1)
+    return (oval > 0) & (excl == 0) & (d < 12) & (lab[..., 0] > 12)
+
+
+def flatten_lighting(pp):
+    """估計臉上的光照場 (亮度的大尺度變化)，除掉它 → 每個地方像在同樣亮度下拍的。
+    VISIA 用固定的環形燈箱讓整張臉亮度一致；手機光線方向不固定，只能事後估計再除掉
+    (Retinex 的概念：影像 = 反射率 × 光照，光照是平滑的)。
+    在線性亮度的 log 上只用皮膚像素做加權模糊 (normalized convolution)，眼睛、頭髮、反光不會被抹進來。
+    回傳 (平整後的線性影像, 光線資訊)：
+      lr_stops     左右臉頰亮度差 (曝光級數，1 級 = 亮 2 倍)
+      range_stops  全臉光照場的第 95 − 第 5 百分位 (曝光級數)"""
+    lin = pp["face_lin"]
+    Y = np.maximum(lin @ color.Y_BGR, 1e-4).astype(np.float32)
+    m = _light_mask(pp) & (pp["face_raw"].max(axis=2) < 250)       # 過曝的像素不可信
+    s = SHADING_SIGMA_IPD * pp["ipd"]
+    logY = np.log(Y)
+    num = cv2.GaussianBlur(np.where(m, logY, 0).astype(np.float32), (0, 0), s)
+    den = cv2.GaussianBlur(m.astype(np.float32), (0, 0), s)
+    if m.sum() < 500:
+        return lin, {"lr_stops": 0.0, "range_stops": 0.0, "ok": False}
+    ref = float(np.median(logY[m]))
+    field = np.where(den > 0.02, num / np.maximum(den, 1e-6), ref)
+    # 離皮膚很遠的地方 (背景、頭髮) 權重低 → 往全臉基準靠，避免除出極端值
+    wgt = np.clip(den / 0.2, 0, 1)
+    field = wgt * field + (1 - wgt) * ref
+    flat = lin * np.exp(ref - field)[..., None]
+
+    # 左右比較用臉頰高度 (眼睛到嘴角) 的左半 / 右半臉：分區遮罩會剔掉陰影裡的皮膚，這裡不用它
+    kp = pp["kp"]
+    cx = (kp["eye_l"][0] + kp["eye_r"][0]) / 2
+    ey = (kp["eye_l"][1] + kp["eye_r"][1]) / 2
+    my = (kp["mouth_l"][1] + kp["mouth_r"][1]) / 2
+    yy, xx = np.indices(m.shape)
+    band = m & (yy > ey + 0.3 * pp["ipd"]) & (yy < my)
+    side_l = band & (xx < cx - 0.25 * pp["ipd"])
+    side_r = band & (xx > cx + 0.25 * pp["ipd"])
+    cl = float(np.median(field[side_l])) if side_l.sum() > 200 else None
+    cr = float(np.median(field[side_r])) if side_r.sum() > 200 else None
+    sk = field[m]
+    info = {"lr_stops": round(float(abs(cl - cr) / np.log(2)), 3) if cl is not None and cr is not None else 0.0,
+            "range_stops": round(float(np.percentile(sk, 95) - np.percentile(sk, 5)) / np.log(2), 3),
+            "ok": True}
+    return flat.astype(np.float32), info
 
 
 def clahe_gray(bgr):

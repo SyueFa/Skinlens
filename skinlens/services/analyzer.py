@@ -23,6 +23,9 @@ SIDE_MIN_TURN = 0.12
 # 反光 (油光 + 過曝) 占皮膚 % 超過這個值就提醒洗臉重拍：FFHQ 參考族群的第 90 百分位約 12.8%
 # (手機沒有交叉偏振片，表面油光只能靠使用者洗臉減少)
 SHINE_WARN_PCT = 12.0
+# 左右臉亮度差 (曝光級數，1 級 = 亮 2 倍) 超過這個值就提醒重拍：FFHQ 參考族群第 90 百分位約 1.18、
+# 第 95 約 1.43；一般室內正面光的手機自拍約 0.4–0.9。大範圍明暗會做光照平整，但硬陰影 (鼻影、側光) 修不掉
+LIGHT_WARN_STOPS = 1.3
 UV_NOTICE = ("紫外線色斑、紫質是實驗性功能：需要在 365nm UV 燈下拍攝，尚未經人工標註校正，結果僅供參考。"
              "如果照片是一般光線拍的，這兩項分數沒有意義。")
 
@@ -64,6 +67,14 @@ def extract(data: bytes, lighting="standard", frames=None, device=None):
         pp["quality"]["warnings"].append(
             f"臉上反光較多 (油光或過曝，占皮膚 {shine:.0f}%)，棕色斑、紅色區可能不準。"
             "建議洗臉擦乾、不擦保養品，約 10 分鐘後在柔和光線下重拍")
+        pp["quality"]["ok"] = False
+    light = pp["light"]
+    pp["quality"]["light_lr_stops"] = round(light["lr_stops"], 2)
+    pp["quality"]["light_range_stops"] = round(light["range_stops"], 2)
+    if light["lr_stops"] > LIGHT_WARN_STOPS:
+        pp["quality"]["warnings"].append(
+            f"光線不均：左右臉亮度差約 {2 ** light['lr_stops']:.1f} 倍，陰影可能被誤判成斑點或皺紋。"
+            "建議面對窗戶或燈光、讓光線從正前方照，避免側光與頭頂光後重拍")
         pp["quality"]["ok"] = False
     learned = trainer.predict(feats)
     for k, r in results.items():

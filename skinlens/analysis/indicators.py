@@ -103,8 +103,8 @@ def _pack(name, raw, count, mask, regions, by_region_fn=_area_pct, extra=None, c
 def detect_spots(pp):
     """斑點：比周圍皮膚暗的小色塊 (曬斑、雀斑、痘疤、痣)。黑帽運算找局部暗點，再排除細長的(那是皺紋/毛髮)。"""
     skin = _core(pp)
-    L = cv2.cvtColor(pp["face"], cv2.COLOR_BGR2LAB)[..., 0]
-    bh = cv2.morphologyEx(L, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17)))
+    L = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2LAB)[..., 0]   # 光照平整後：陰影側的斑點對比不會被壓低
+    bh =cv2.morphologyEx(L, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17)))
     cand = (bh > 13) & skin
     cand = cv2.morphologyEx(cand.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)) > 0
     mask, n = _filter_components(cand, 8, 900, max_ecc=0.93)
@@ -115,7 +115,7 @@ def detect_spots(pp):
 def detect_brown_spots(pp):
     """棕色斑：黑色素沉澱 (肝斑、曬斑、發炎後色素沉澱)。比周圍暗 + 偏黃棕 (Lab 的 b* 較高)。"""
     skin = _core(pp, 15)
-    lab = cv2.cvtColor(pp["face"], cv2.COLOR_BGR2LAB).astype(np.float32)
+    lab = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2LAB).astype(np.float32)   # 光照平整後
     L, b = lab[..., 0], lab[..., 2]
     Ld = L - cv2.GaussianBlur(L, (0, 0), 15)
     bd = b - cv2.GaussianBlur(b, (0, 0), 15)
@@ -231,7 +231,8 @@ def _detect_wrinkles_frangi(pp):
 def detect_texture(pp):
     """紋理：皮膚表面平滑度。高通濾波後的殘差越大 = 越粗糙 (角質堆積、凹凸、痘疤)。"""
     skin = _core(pp, 15)
-    g = cv2.cvtColor(pp["face"], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    # 光照平整後：亮的地方殘差大、暗的地方小，不平整的話亮度差會被當成粗糙度
+    g = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2GRAY).astype(np.float32)
     hp = g - cv2.GaussianBlur(g, (0, 0), 4)
     if not skin.any():
         return _pack("texture", 0, 0, np.zeros_like(skin), pp["regions"])
