@@ -7,7 +7,8 @@ import cv2
 import numpy as np
 from ..config import UPLOAD_DIR, PROC_DIR, HISTORY_DIR, MIN_PEERS
 from ..db import subjects, images, analyses, now
-from ..analysis.preprocess import load_image, preprocess
+from ..analysis.preprocess import load_image, preprocess, apply_color
+from ..analysis import color
 from ..analysis.indicators import analyze_all, overlay, feature_vector, COLORS
 from ..analysis.knowledge import INDICATORS as KB, GENERAL_TIPS, DISCLAIMER, level_of
 from . import trainer
@@ -23,9 +24,28 @@ def _b64(img, q=85):
     return "data:image/jpeg;base64," + base64.b64encode(buf).decode()
 
 
-def extract(data: bytes, lighting="standard"):
-    """影像 → (前處理結果, 各指標結果, 特徵向量)。模型校正也在這裡套用。"""
+def _session_color(pp, frames):
+    """網頁拍照流程：用睜眼影格的眼白估光源，重新校色閉眼照片 (analysis/color.session_illuminant)。
+    影格都不能用 (沒偵測到臉、眼白不可信) 時保留照片自己估的校色，並在 color 裡記下原因。"""
+    fpps = []
+    for fb in frames:
+        try:
+            fpps.append(preprocess(load_image(fb)))
+        except ValueError:
+            continue
+    illum, info = color.session_illuminant(fpps, pp)
+    info["frames_received"] = len(frames)
+    if illum is not None:
+        apply_color(pp, illum)
+    pp["color"]["session"] = info
+
+
+def extract(data: bytes, lighting="standard", frames=None):
+    """影像 → (前處理結果, 各指標結果, 特徵向量)。模型校正也在這裡套用。
+    frames：網頁拍照流程的睜眼影格 (JPEG bytes)，用來校色閉眼照片。"""
     pp = preprocess(load_image(data))
+    if frames:
+        _session_color(pp, frames)
     results = analyze_all(pp, lighting)
     feats = feature_vector(results, pp)
     learned = trainer.predict(feats)
@@ -110,7 +130,7 @@ def build_report(pp, results, age, lighting):
     summary = (f"主要需要注意：{'、'.join(i['name'] for i in concerns[:3])}" if concerns
                else "整體膚況良好，維持防曬與保濕即可")
     return {
-        "lighting": lighting, "quality": pp["quality"], "overall_score": overall, "summary": summary,
+        "lighting": lighting, "quality": pp["quality"], "color": pp["color"], "overall_score": overall, "summary": summary,
         "original": _b64(pp["face_raw"]), "preprocessed": _b64(pp["face"]),
         "regions_preview": _b64(_region_preview(pp)),
         "indicators": indicators, "general_tips": GENERAL_TIPS, "disclaimer": DISCLAIMER,
@@ -126,9 +146,11 @@ def strip_images(report):
     return r
 
 
-def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=None, consent=False, user=None):
-    """網站上傳分析。會員 → 存入歷史紀錄；勾選同意 → 照片另存訓練資料池。"""
-    pp, results, feats = extract(data, lighting)
+def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=None, consent=False, user=None,
+            frames=None):
+    """網站上傳分析。會員 → 存入歷史紀錄；勾選同意 → 照片另存訓練資料池。
+    frames：網頁拍照流程的睜眼影格，用來校色閉眼照片。"""
+    pp, results, feats = extract(data, lighting, frames)
     report = build_report(pp, results, age, lighting)
 
     image_id = None

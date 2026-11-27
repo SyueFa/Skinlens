@@ -31,6 +31,15 @@ const SL = (() => {
    * 畫出完整報告。data = /api/analyze 或 /api/history/<id> 的回傳。
    * opts.faceUrl：歷史紀錄沒有 base64 圖時，用這張照片
    */
+  // 校色方式 (analysis/color.py)：給使用者知道顏色可信度
+  function colorLabel(c) {
+    if (!c) return "-";
+    const s = c.session;
+    if (c.method === "session") return `拍照流程眼白校正 (${s?.frames_used ?? "?"} 張影格)`;
+    const base = {sclera: "眼白校正", blend: "眼白 + 整體色調", sog: "整體色調 (較不準)", none: "未校正"}[c.method] || c.method;
+    return s ? `${base}，影格不可用` : base;
+  }
+
   function renderReport($root, data, opts = {}) {
     const ringColor = LEVEL_COLORS[Math.min(4, Math.floor((100 - data.overall_score) / 20))];
     const q = data.quality || {};
@@ -57,7 +66,7 @@ const SL = (() => {
             <h2 class="h4 fw-bold mb-2">${esc(data.summary)}</h2>
             <div class="small text-body-secondary">
               ${esc(LIGHTING[data.lighting] || data.lighting)} · 臉部偵測：${esc(q.detector === "mediapipe" ? "MediaPipe 478 點" : "OpenCV")}
-              · 清晰度 ${q.blur ?? "-"} · 亮度 ${q.brightness ?? "-"}
+              · 清晰度 ${q.blur ?? "-"} · 亮度 ${q.brightness ?? "-"} · 校色：${esc(colorLabel(data.color))}
             </div>
             ${data.saved_to_history ? `<div class="small mt-2"><i class="bi bi-check2-circle text-success"></i> 已存到 <a href="/history">我的紀錄</a></div>` : ""}
             ${data.saved_to_history === false && !window.CURRENT_USER ? `<div class="small mt-2 text-body-secondary"><i class="bi bi-info-circle"></i> <a href="/register">註冊會員</a>就能保存每次結果、追蹤保養前後變化</div>` : ""}

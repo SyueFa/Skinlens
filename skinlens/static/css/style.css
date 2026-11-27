@@ -54,6 +54,16 @@ body { line-height: 1.7; }
 .sl-drop.has-file { border-style: solid; border-color: var(--sl-primary); }
 .sl-drop img { max-height: 240px; border-radius: 10px; }
 .sl-drop:focus-visible { outline: 3px solid rgba(34,112,122,.4); outline-offset: 2px; }
+
+/* 相機拍照 (capture.js) */
+.sl-cam { position: relative; aspect-ratio: 3 / 4; max-height: 70vh; margin-inline: auto; border-radius: 14px; overflow: hidden; background: #0d1416; }
+.sl-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }   /* 預覽鏡像，比較像照鏡子；存檔不鏡像 */
+.sl-cam-guide { position: absolute; left: 50%; top: 45%; width: 62%; height: 64%; transform: translate(-50%, -50%);
+  border: 3px dashed rgba(255,255,255,.75); border-radius: 50%; pointer-events: none; }
+.sl-cam-msg { position: absolute; inset: auto 0 0 0; padding: .9rem 1rem 1.1rem; text-align: center; color: #fff;
+  background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); }
+.sl-cam-count { font-size: 2.6rem; font-weight: 700; line-height: 1.1; }
+.sl-cam-cancel { position: absolute; top: .6rem; right: .6rem; }
 .sl-tips li { margin-bottom: .35rem; }
 
 /* 報告 */
