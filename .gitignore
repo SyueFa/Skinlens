@@ -13,10 +13,8 @@ models/*.pt
 models/face_landmarker.task
 models/*.onnx
 
-# 課程教材與評分資料 (不公開)
-informations/
-*.pptx
-老師評分標準.png
+#(不公開)
+informations/*
 
 # 編輯器
 .vscode/
