@@ -1,9 +1,11 @@
-/* 網頁拍照流程：開相機 → 睜眼看鏡頭 5 秒 (背景擷取影格，後端用眼白校色) → 閉眼 3 秒 → 拍照。
+/* 網頁拍照流程：開相機 → 睜眼看鏡頭 5 秒 (背景擷取影格，後端用眼白校色) → 閉眼 3 秒 → 拍正臉
+ *   → (選用) 眼睛繼續閉著，轉向左邊、右邊各拍一張側臉。
  * 閉眼時看不到螢幕，所以倒數與完成都用嗶聲 + 語音提示。
- * 用法：SLCapture.start({video, onStatus(title, count), onDone({still, frames}), onError(msg)})；SLCapture.stop()
+ * 用法：SLCapture.start({video, onStatus(title, count), onDone({still, frames, sides}), onError(msg), withSides})
+ *       SLCapture.stop()
  */
 window.SLCapture = (function () {
-  const OPEN_SEC = 5, CLOSE_SEC = 3;
+  const OPEN_SEC = 5, CLOSE_SEC = 3, SIDE_SEC = 3;
   const FRAME_EVERY_MS = 600, FRAME_START_MS = 1000;   // 前 1 秒讓自動曝光穩定，之後每 0.6 秒抓一張
   const FRAME_MAX_SIDE = 1280, STILL_MAX_SIDE = 2400;   // 影格只用來看眼白，不必太大
   let stream = null, timers = [], audio = null, cancelled = false;
@@ -58,7 +60,7 @@ window.SLCapture = (function () {
     try { window.speechSynthesis && speechSynthesis.cancel(); } catch (e) { /* 忽略 */ }
   }
 
-  async function start({video, onStatus, onDone, onError}) {
+  async function start({video, onStatus, onDone, onError, withSides = true}) {
     cancelled = false;
     beep(660, 1);   // 在按鈕事件當下啟動音效 (瀏覽器規定要有使用者操作，等相機權限之後再啟動 Safari 會擋)
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -111,13 +113,31 @@ window.SLCapture = (function () {
       beep(880, 120);
     }
 
-    // 3. 拍照
+    // 3. 拍正臉
     onStatus("拍照中…", "");
     const still = await grab(video, STILL_MAX_SIDE, 0.95);
+    const shots = [];
+
+    // 4. (選用) 側臉：眼睛繼續閉著，轉向左、右各拍一張 (看魚尾紋與外側臉頰，像 VISIA 的側面照)
+    if (withSides) {
+      for (const [dir, sec] of [["左", SIDE_SEC], ["右", SIDE_SEC + 1]]) {   // 從左轉到右要多一秒
+        beep(1320, 150);
+        say(`眼睛繼續閉著，請把臉慢慢轉向${dir}邊`);
+        for (let s = sec; s > 0; s--) {
+          onStatus(`眼睛閉著，臉轉向${dir}邊 (約 45 度)`, s);
+          await wait(1000);
+          if (cancelled) return;
+          beep(880, 120);
+        }
+        onStatus("拍照中…", "");
+        shots.push(await grab(video, STILL_MAX_SIDE, 0.95));
+      }
+    }
+
     beep(1320, 400);
     say("好了，可以睜開眼睛");
     stop();
-    onDone({still, frames});
+    onDone({still, frames, sides: shots});
   }
 
   // 網頁相機拍的照片沒有 EXIF，從瀏覽器資訊推測裝置 (Android 會帶型號代碼，iPhone 只知道是 iPhone)，

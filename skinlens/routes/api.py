@@ -36,9 +36,10 @@ def analyze():
     # 網頁拍照流程：file = 閉眼照片，frames = 拍照前睜眼看鏡頭時擷取的影格 (用眼白校色)
     frames = [b for b in (fr.read() for fr in request.files.getlist("frames")[:MAX_FRAMES]) if b]
     device = (form.get("device") or "").strip()[:60] or None   # 網頁相機沒有 EXIF，由前端從瀏覽器資訊推測
+    sides = [b for b in (s.read() for s in request.files.getlist("sides")[:2]) if b]   # 左、右轉的側臉照片
     try:
         report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user,
-                                  frames=frames, device=device)
+                                  frames=frames, device=device, sides=sides)
     except ValueError as e:          # 讀不到圖、找不到臉等
         return jsonify(error=str(e)), 422
     return jsonify(report)

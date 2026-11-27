@@ -1,6 +1,6 @@
 /* 首頁：選照片 (或相機拍照流程) → 上傳 /api/analyze → 顯示報告 */
 $(function () {
-  let fileObj = null, frameBlobs = [], timer = null;
+  let fileObj = null, frameBlobs = [], sideBlobs = [], timer = null;
   const prof = window.CURRENT_USER?.profile || {};
   if (prof.age) $("#age").val(prof.age);
   if (prof.gender) $("#gender").val(prof.gender);
@@ -9,13 +9,14 @@ $(function () {
   // 選 UV 光源時提醒：需要 365nm UV 燈拍攝，且尚未校正
   $("#lighting").on("change", function () { $("#uv-warn").prop("hidden", this.value !== "uv"); });
 
-  // frames：相機拍照流程的睜眼影格 (後端用眼白校色)；手動上傳的照片沒有影格
-  function pick(f, frames = []) {
+  // frames：相機拍照流程的睜眼影格 (後端用眼白校色)；sides：左右側臉照片。手動上傳的照片兩者都沒有
+  function pick(f, frames = [], sides = []) {
     if (!f) return;
     if (!f.type.startsWith("image/")) { showErr("請選擇圖片檔 (JPG、PNG)"); return; }
     if (f.size > 15 * 1024 * 1024) { showErr("照片太大，請小於 15MB"); return; }
     fileObj = f;
     frameBlobs = frames;
+    sideBlobs = sides;
     $("#preview").attr("src", URL.createObjectURL(f)).removeClass("d-none");
     $("#drop-empty").addClass("d-none");
     $("#drop").addClass("has-file");
@@ -44,12 +45,13 @@ $(function () {
     SLCapture.start({
       video: document.getElementById("cam-video"),
       onStatus: (title, count) => { $("#cam-title").text(title); $("#cam-count").text(count); },
-      onDone: ({still, frames}) => {
+      onDone: ({still, frames, sides}) => {
         camUi(false);
-        pick(new File([still], "capture.jpg", {type: "image/jpeg"}), frames);
+        pick(new File([still], "capture.jpg", {type: "image/jpeg"}), frames, sides);
         $("#go").trigger("click");
       },
       onError: msg => { camUi(false); showErr(msg); },
+      withSides: $("#cam-sides").is(":checked"),
     });
   });
   $("#cam-cancel").on("click", () => { SLCapture.stop(); camUi(false); });
@@ -74,6 +76,7 @@ $(function () {
     const fd = new FormData();
     fd.append("file", fileObj);
     frameBlobs.forEach((b, i) => fd.append("frames", b, `frame${i}.jpg`));
+    sideBlobs.forEach((b, i) => fd.append("sides", b, `side${i}.jpg`));
     if (frameBlobs.length && SLCapture.deviceLabel()) fd.append("device", SLCapture.deviceLabel());
     ["lighting", "age", "gender", "skin_type"].forEach(k => { const v = $("#" + k).val(); if (v) fd.append(k, v); });
     fd.append("consent", $("#consent").is(":checked"));
