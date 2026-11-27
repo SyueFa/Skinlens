@@ -40,6 +40,35 @@ const SL = (() => {
     return s ? `${base}，影格不可用` : base;
   }
 
+  // 側臉補充 (拍照流程的左右轉照片)：只列量測值與標示位置，不換算成分數 (分數曲線是用正臉校準的)
+  const SIDE_VIEWS = [["original", "原圖"], ["wrinkles", "皺紋"], ["spots", "斑點"], ["brown_spots", "棕色斑"], ["red_areas", "紅色區"]];
+  function sidesHtml(sides) {
+    if (!sides?.length) return "";
+    const fmt = (k, v) => v == null ? "-" : k === "wrinkles" ? `${v.toFixed(1)} ‰` : `${v.toFixed(1)} %`;
+    return `
+      <div class="sl-card p-4 mb-3">
+        <h3 class="h5 fw-bold mb-1">側臉補充</h3>
+        <p class="small text-body-secondary mb-3">看正面不容易看清楚的魚尾紋與外側臉頰。僅供參考：分數是用正臉照片校準的，側臉只列出量測值與位置。</p>
+        <div class="row g-3">${sides.map((s, si) => s.error ? `
+          <div class="col-md-6"><div class="alert alert-warning small mb-0">${esc(s.error)}</div></div>` : `
+          <div class="col-md-6">
+            <h4 class="h6 fw-bold">${esc(s.side)}側面 <small class="text-body-secondary fw-normal">轉了約 ${Math.round(Math.asin(Math.min(1, s.turn)) * 180 / Math.PI)}°</small></h4>
+            ${s.warning ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-exclamation-triangle"></i> ${esc(s.warning)}</div>` : ""}
+            ${s.overlays ? `
+              <div class="d-flex flex-wrap gap-1 mb-2">${SIDE_VIEWS.map(([k, n]) =>
+                `<button class="btn btn-sm ${k === "original" ? "btn-secondary" : "btn-outline-secondary"}" data-side="${si}" data-side-key="${k}">${n}</button>`).join("")}</div>
+              <div class="sl-viewer mb-2"><img id="side-img-${si}" src="${s.original}" alt="${esc(s.side)}側面"></div>` : ""}
+            <table class="table table-sm small mb-0">
+              <thead><tr><th>指標</th><th class="text-end">魚尾紋區</th><th class="text-end">外側臉頰</th><th class="text-end">偵測數</th></tr></thead>
+              <tbody>${Object.entries(s.metrics).map(([k, m]) => `
+                <tr><td>${esc(m.name)}</td><td class="text-end tabular">${fmt(k, m.crow)}</td>
+                    <td class="text-end tabular">${fmt(k, m.cheek)}</td><td class="text-end tabular">${m.count}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>`).join("")}</div>
+        <p class="small text-body-secondary mt-2 mb-0">皺紋：線條像素占該區 ‰；其他：病灶面積占該區 %。</p>
+      </div>`;
+  }
+
   function renderReport($root, data, opts = {}) {
     const ringColor = LEVEL_COLORS[Math.min(4, Math.floor((100 - data.overall_score) / 20))];
     const q = data.quality || {};
@@ -67,6 +96,7 @@ const SL = (() => {
             <div class="small text-body-secondary">
               ${esc(LIGHTING[data.lighting] || data.lighting)} · 臉部偵測：${esc(q.detector === "mediapipe" ? "MediaPipe 478 點" : "OpenCV")}
               · 清晰度 ${q.blur ?? "-"} · 亮度 ${q.brightness ?? "-"} · 校色：${esc(colorLabel(data.color))}
+              ${q.device ? ` · 裝置：${esc(q.device)}` : ""}
             </div>
             ${data.saved_to_history ? `<div class="small mt-2"><i class="bi bi-check2-circle text-success"></i> 已存到 <a href="/history">我的紀錄</a></div>` : ""}
             ${data.saved_to_history === false && !window.CURRENT_USER ? `<div class="small mt-2 text-body-secondary"><i class="bi bi-info-circle"></i> <a href="/register">註冊會員</a>就能保存每次結果、追蹤保養前後變化</div>` : ""}
@@ -102,6 +132,8 @@ const SL = (() => {
           </div>
         </div>
       </div>
+
+      ${sidesHtml(data.sides)}
 
       <div class="sl-card p-4 mb-3">
         <h3 class="h5 fw-bold mb-3">各指標代表什麼、怎麼改善</h3>
@@ -149,6 +181,12 @@ const SL = (() => {
       $root.on("click", "[data-view]", e => show(+$(e.currentTarget).data("view")));
       show(2);   // 預設顯示最需要注意的指標
     }
+    $root.on("click", "[data-side]", e => {
+      const $b = $(e.currentTarget), si = +$b.data("side"), key = $b.data("side-key"), s = data.sides[si];
+      $root.find(`#side-img-${si}`).attr("src", key === "original" ? s.original : s.overlays[key]);
+      $root.find(`[data-side=${si}]`).removeClass("btn-secondary").addClass("btn-outline-secondary");
+      $b.addClass("btn-secondary").removeClass("btn-outline-secondary");
+    });
     $root.on("click", ".sl-ind-tile", e => {
       const key = $(e.currentTarget).data("key");
       if (hasImages) show_(key);

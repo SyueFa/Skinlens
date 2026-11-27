@@ -21,7 +21,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--source", default="ffhq_wrinkle")
 a = ap.parse_args()
 
-sclera, sog, n = [], [], 0
+logs = {"sclera_normal": [], "sclera_glare": [], "sog": []}
+n = 0
 for d in images.find({"source": a.source, "split": {"$ne": "test"}}, {"raw_path": 1}):
     try:
         pp = preprocess(load_image(Path(d["raw_path"]).read_bytes()))
@@ -29,17 +30,18 @@ for d in images.find({"source": a.source, "split": {"$ne": "test"}}, {"raw_path"
         continue
     n += 1
     lin = color.to_linear(pp["face_raw"])
-    est, w, _ = color.sclera_illuminant(lin, pp["polys"], use_ref=False)
-    if est is not None and w >= 1.0:          # 只用完全可信的眼白
-        sclera.append(np.log(est / est[1]))
+    for mode in ("normal", "glare"):          # 兩種亮度範圍取到的像素不同，眼白看起來的顏色也不同，各自估
+        est, w, _ = color.sclera_illuminant(lin, pp["polys"], use_ref=False, mode=mode)
+        if est is not None and w >= 1.0:      # 只用完全可信的眼白
+            logs[f"sclera_{mode}"].append(np.log(est / est[1]))
     s = color.shades_of_gray_illuminant(lin, use_ref=False)
-    sog.append(np.log(s / s[1]))
+    logs["sog"].append(np.log(s / s[1]))
 
-ref = {name: [round(float(x), 5) for x in np.exp(np.median(np.array(v), axis=0))] for name, v in (("sclera", sclera), ("sog", sog))}
-out = {"source": a.source, "n_images": n, "n_sclera": len(sclera),
+ref = {k: [round(float(x), 5) for x in np.exp(np.median(np.array(v), axis=0))] for k, v in logs.items()}
+out = {"source": a.source, "n_images": n, **{f"n_{k}": len(v) for k, v in logs.items()},
        "created_at": datetime.now().isoformat(timespec="seconds"),
        "note": "族群中位數的光源估計 (線性 BGR，G=1)。校色時把估計值除以這個參考色", **ref}
 color.REF_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
-print(f"{n} 張照片，眼白完全可信 {len(sclera)} 張")
-print(f"眼白參考色 (B, G, R) = {ref['sclera']}   SoG 參考色 = {ref['sog']}")
+print(f"{n} 張照片；完全可信的眼白：一般範圍 {len(logs['sclera_normal'])} 張、排除反光範圍 {len(logs['sclera_glare'])} 張")
+print(f"參考色 (B, G, R)：{ref}")
 print(f"→ {color.REF_FILE}")

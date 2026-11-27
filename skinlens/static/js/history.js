@@ -95,6 +95,10 @@ $(function () {
       <table class="table table-sm align-middle mb-2"><thead><tr><th>指標</th><th class="text-end">之前</th><th class="text-end">之後</th><th class="text-end">變化</th></tr></thead>
       <tbody>${keys.map(line).join("")}</tbody></table>
       <p class="small mb-0">${better.length ? `<i class="bi bi-emoji-smile text-success"></i> 進步：${better.join("、")}` : "各項指標變化不大；保養通常要 8~12 週才看得出差異。"}</p>
-      <p class="small text-body-secondary mb-0 mt-1">拍攝光線不同會影響分數，比較時請盡量在同樣環境拍。</p>`);
+      ${a.device && b.device && a.device !== b.device
+        ? `<div class="alert alert-warning py-2 px-3 small mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i>
+             兩次用不同裝置拍攝 (${SL.esc(a.device)} → ${SL.esc(b.device)})。不同手機的調色風格不同，分數差異可能不是膚況改變；追蹤變化請固定用同一支手機。</div>`
+        : ""}
+      <p class="small text-body-secondary mb-0 mt-1">拍攝光線、手機不同都會影響分數，比較時請用同一支手機、在同樣環境拍。</p>`);
   }
 });
