@@ -22,3 +22,6 @@ informations/*
 
 # MediaPipe 網頁版 (用 scripts/download_models.py 取得)
 skinlens/static/vendor/mediapipe/
+
+# 資料集 (很大、授權禁止再散布)
+datasets/*
