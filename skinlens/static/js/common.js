@@ -149,7 +149,7 @@ const SL = (() => {
               <div class="accordion-body sl-advice">
                 <div class="small text-body-secondary mb-2">
                   ${i.percentile != null ? `同齡百分位：贏過 ${i.percentile}% 的同齡者 · ` : ""}
-                  ${i.count ? `偵測到 ${i.count} 處 · ` : ""}
+                  ${i.count ? `偵測到 ${i.count} 處${i.count_split ? ` (${Object.entries(i.count_split).map(([k, v]) => `${k} ${v}`).join("、")})` : ""} · ` : ""}
                   ${i.worst_regions?.length ? `較明顯的位置：${i.worst_regions.map(r => REGIONS[r] || r).join("、")} · ` : ""}
                   ${i.source === "ai_seg" ? `<span class="sl-source-model"><i class="bi bi-stars"></i> AI 皺紋分割 (U-Net)：圖上標示的線由 AI 畫出</span>`
                     : i.source === "model" ? `<span class="sl-source-model"><i class="bi bi-patch-check"></i> 已用 AI 模型校正</span>`

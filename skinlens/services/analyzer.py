@@ -172,6 +172,7 @@ def build_report(pp, results, age, lighting):
             "key": k, "name": kb["name"], "en": kb["en"],
             "severity": r["severity"], "score": round(100 - r["severity"], 1),
             "level": lv, "level_name": lv_name, "count": r["count"], "raw": r["raw"],
+            "count_split": ({"棕色": r["brown_count"], "紅色": r["red_count"]} if "brown_count" in r else None),
             "source": r["source"], "percentile": pct.get(k), "experimental": k in EXPERIMENTAL,
             "worst_regions": [w[0] for w in worst if w[1] > 0],
             "what": kb["what"], "causes": kb["causes"], "advice": kb["advice"][lv],

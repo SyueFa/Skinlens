@@ -186,7 +186,7 @@ U-Net 畫出的線條像素 ÷ 臉部面積，套用和人工答案完全相同�
 # FFHQ-Wrinkle 遮罩：https://github.com/labhai/ffhq-wrinkle-dataset ；對應照片：FFHQ images1024x1024
 uv run python scripts/import_ffhq_wrinkle.py <images 資料夾> <manual_wrinkle_masks 資料夾>
 # Kaggle：https://www.kaggle.com/datasets/killa92/facial-skin-analysis-and-type-classification
-uv run python scripts/import_kaggle_skin.py <資料集資料夾>
+uv run python scripts/import_kaggle_skin.py <資料集資料夾>   # 例：D:/CODE/datasets/skin_type_classification_dataset
 uv run python scripts/calibrate.py
 uv run python scripts/fit_chromophore.py
 # AI 皺紋分割 (模型檔約 98MB 不放 git；沒有時會自動退回傳統 Frangi 演算法)

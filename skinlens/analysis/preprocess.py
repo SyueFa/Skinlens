@@ -188,11 +188,65 @@ def apply_color(pp, illuminant=None):
     illuminant 給了就直接用 (拍照流程從睜眼影格估出來的)。"""
     pp["face_lin"], pp["color"] = color.normalize_linear(pp["face_raw"], pp["polys"], illuminant=illuminant)
     pp["face"] = color.to_srgb(pp["face_lin"])   # face_lin：不截斷的線性浮點影像，給色素分離用
-    flat_lin, pp["light"] = flatten_lighting(pp)
+    flat_lin, pp["light"], pp["light_gain"] = flatten_lighting(pp)
     pp["face_flat"] = color.to_srgb(flat_lin)    # 光照平整後的影像：斑點、棕色斑、紋理、毛孔用
     pp["gray_clahe"] = clahe_gray(pp["face_flat"])
     pp.pop("_chromo_maps", None)       # 色素分離的快取跟著失效
+    pp.pop("_hr", None)
+    pp.pop("_fold", None)
     return pp
+
+
+# ---------------------------------------------------------------- 高解析度臉部 (毛孔、紋理用)
+# 臉寬 600 px 時毛孔 (直徑 0.1–0.5 mm) 只有 1–2 個像素。手機原圖通常有 1,500 px 以上，
+# 需要時才從原圖用同一個轉正矩陣重新取一次，最多放大 HR_MAX 倍 (再大太耗記憶體、原圖也沒那麼細)
+HR_MAX = 2.5
+HR_MIN = 1.2      # 原圖比 600 px 大不到這麼多就直接用 600 px 的影像
+
+
+def hr_scale(pp):
+    """原圖能提供的放大倍數 (1 = 沒有更高解析度)。"""
+    src, M = pp.get("src"), pp.get("warp")
+    if src is None or M is None:
+        return 1.0
+    k = min(HR_MAX, 1.0 / float(np.hypot(M[0, 0], M[0, 1])))
+    return round(k, 3) if k >= HR_MIN else 1.0
+
+
+def hires(pp):
+    """高解析度、校色、光照平整後的線性影像與對應的遮罩 (同一張照片只算一次)：
+      k     放大倍數 (相對 600 px 的臉部座標)
+      lin   線性浮點 BGR (和 face_lin 同樣的校色，再乘上放大後的光照平整增益)
+      skin、regions、ipd  放大後的皮膚遮罩、分區、瞳距"""
+    if "_hr" in pp:
+        return pp["_hr"]
+    k = hr_scale(pp)
+    if k == 1.0:
+        out = {"k": 1.0, "lin": pp["face_lin"] * pp["light_gain"][..., None], "skin": pp["skin"],
+               "regions": pp["regions"], "ipd": pp["ipd"]}
+    else:
+        h, w = pp["face_raw"].shape[:2]
+        W, H = int(round(w * k)), int(round(h * k))
+        raw = cv2.warpAffine(pp["src"], pp["warp"] * k, (W, H), flags=cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_REPLICATE)
+        lin = color.to_linear(raw).astype(np.float32)
+        illum = pp["color"].get("illuminant_bgr")
+        if illum is not None:
+            lin = color.apply_illuminant(lin, illum)
+        lin *= cv2.resize(pp["light_gain"], (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
+        up = lambda m: cv2.resize(m, (W, H), interpolation=cv2.INTER_NEAREST)
+        out = {"k": k, "lin": lin, "skin": up(pp["skin"]), "regions": {r: up(m) for r, m in pp["regions"].items()},
+               "ipd": pp["ipd"] * k}
+    pp["_hr"] = out
+    return out
+
+
+def to_face_scale(mask_hr, pp):
+    """高解析度遮罩 → 600 px 臉部座標 (覆蓋到一點就算，小毛孔縮小後才不會消失)。"""
+    h, w = pp["skin"].shape[:2]
+    if mask_hr.shape[:2] == (h, w):
+        return mask_hr.astype(bool)
+    return cv2.resize(mask_hr.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA) > 0
 
 
 # ---------------------------------------------------------------- 光照平整 / 光線均勻度
@@ -226,7 +280,7 @@ def flatten_lighting(pp):
     VISIA 用固定的環形燈箱讓整張臉亮度一致；手機光線方向不固定，只能事後估計再除掉
     (Retinex 的概念：影像 = 反射率 × 光照，光照是平滑的)。
     在線性亮度的 log 上只用皮膚像素做加權模糊 (normalized convolution)，眼睛、頭髮、反光不會被抹進來。
-    回傳 (平整後的線性影像, 光線資訊)：
+    回傳 (平整後的線性影像, 光線資訊, 增益圖 (乘上去就平整；高解析度影像放大後共用))：
       lr_stops     左右臉頰亮度差 (曝光級數，1 級 = 亮 2 倍)
       range_stops  全臉光照場的第 95 − 第 5 百分位 (曝光級數)"""
     lin = pp["face_lin"]
@@ -237,13 +291,14 @@ def flatten_lighting(pp):
     num = cv2.GaussianBlur(np.where(m, logY, 0).astype(np.float32), (0, 0), s)
     den = cv2.GaussianBlur(m.astype(np.float32), (0, 0), s)
     if m.sum() < 500:
-        return lin, {"lr_stops": 0.0, "range_stops": 0.0, "ok": False}
+        return lin, {"lr_stops": 0.0, "range_stops": 0.0, "ok": False}, np.ones(m.shape, np.float32)
     ref = float(np.median(logY[m]))
     field = np.where(den > 0.02, num / np.maximum(den, 1e-6), ref)
     # 離皮膚很遠的地方 (背景、頭髮) 權重低 → 往全臉基準靠，避免除出極端值
     wgt = np.clip(den / 0.2, 0, 1)
     field = wgt * field + (1 - wgt) * ref
-    flat = lin * np.exp(ref - field)[..., None]
+    gain = np.exp(ref - field).astype(np.float32)
+    flat = lin * gain[..., None]
 
     # 左右比較用臉頰高度 (眼睛到嘴角) 的左半 / 右半臉：分區遮罩會剔掉陰影裡的皮膚，這裡不用它
     kp = pp["kp"]
@@ -260,7 +315,7 @@ def flatten_lighting(pp):
     info = {"lr_stops": round(float(abs(cl - cr) / np.log(2)), 3) if cl is not None and cr is not None else 0.0,
             "range_stops": round(float(np.percentile(sk, 95) - np.percentile(sk, 5)) / np.log(2), 3),
             "ok": True}
-    return flat.astype(np.float32), info
+    return flat.astype(np.float32), info, gain
 
 
 def clahe_gray(bgr):
@@ -387,5 +442,7 @@ def preprocess(bgr, illuminant=None):
     pp = {"face_raw": face_raw, "face_unet": face_unet,   # face_unet：皺紋 U-Net 專用 (訓練時的輸入格式)
           "skin": skin, "regions": regions, "ipd": ipd, "kp": det["kp"], "quality": q,
           "polys": det["polys"],   # 臉部座標的五官輪廓 (眼、眉、唇、臉框)；Haar 備援時為 None
-          "warp": warp}            # 2×3 仿射矩陣：原始照片座標 → 轉正裁切後的臉部座標
+          "warp": warp,            # 2×3 仿射矩陣：原始照片座標 → 轉正裁切後的臉部座標
+          "src": bgr}              # 原圖：需要時取高解析度臉部 (hires)
+    q["hr_scale"] = hr_scale(pp)
     return apply_color(pp, illuminant)   # face：校色後影像，所有指標都用這張
