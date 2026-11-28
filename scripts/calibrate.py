@@ -19,6 +19,7 @@ from skinlens.config import MODEL_DIR
 
 VISIBLE = ["spots", "wrinkles", "texture", "pores", "brown_spots", "red_areas"]
 MID_PCT, HIGH_PCT, HIGH_SEV = 65, 95, 85
+SHARP_ONLY = {"pores": 50}     # 只用清晰度前 N% 的參考照片校準的指標
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--source", default="ffhq_wrinkle")
@@ -30,8 +31,15 @@ if len(feats) < 100:
 
 calib, summary = {}, {}
 k_high = math.log(HIGH_SEV / (100 - HIGH_SEV))
+blur_all = np.array([f.get("quality.blur", 0) for f in feats], float)
 for ind in VISIBLE:
-    raw = np.array([f[f"{ind}.raw"] for f in feats if f.get(f"{ind}.raw") is not None], float)
+    ref = feats
+    if ind in SHARP_ONLY:
+        # 毛孔要夠清楚才看得到：模糊的參考照片幾乎量不到毛孔，會把族群基準拉低，
+        # 手機近拍的人全被判成「嚴重」。只用清晰度前 SHARP_ONLY% 的參考照片
+        th = np.percentile(blur_all, 100 - SHARP_ONLY[ind])
+        ref = [f for f in feats if f.get("quality.blur", 0) >= th]
+    raw = np.array([f[f"{ind}.raw"] for f in ref if f.get(f"{ind}.raw") is not None], float)
     # 量測值多半右偏 (多數人很少、少數人很多)，在對數尺度上校準，皮膚乾淨的人才拿得到「優良」
     eps = max(float(np.percentile(raw, 10)), 0.05 * float(np.median(raw)), 1e-3)
     v = np.log(raw + eps)
@@ -39,7 +47,7 @@ for ind in VISIBLE:
     scale = max((high - mid) / k_high, 1e-3)
     calib[ind] = [round(float(mid), 4), round(float(scale), 4), round(eps, 4)]
     sev = 100 / (1 + np.exp(-(v - mid) / scale))
-    summary[ind] = {"median_raw": round(float(np.median(raw)), 3),
+    summary[ind] = {"median_raw": round(float(np.median(raw)), 3), "n": int(len(raw)),
                     "levels_pct": [round(float(np.mean((sev >= lo) & (sev < hi))) * 100, 1)
                                    for lo, hi in [(0, 20), (20, 40), (40, 60), (60, 80), (80, 101)]]}
 

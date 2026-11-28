@@ -73,6 +73,16 @@ def decompose(lin_bgr):
     return coef[:, 0].reshape(h, w).astype(np.float32), coef[:, 1].reshape(h, w).astype(np.float32)
 
 
+def shading(lin_bgr):
+    """光照 / 凹凸成分 (OD 的 (1,1,1) 方向；越大 = 越暗)。色素被分到另外兩個成分，
+    毛孔、細紋的凹陷陰影留在這裡，不會被雀斑、痘印干擾。沒有色素方向檔時用 −log 亮度。"""
+    inv = _inverse()
+    od = optical_density(lin_bgr)
+    if inv is None:
+        return od.mean(2).astype(np.float32)
+    return (od @ inv[2].astype(np.float32)).astype(np.float32)
+
+
 def maps(pp):
     """(黑色素圖, 血紅素圖) 或 None。同一張照片只分離一次，紅色區偵測與色素特徵共用。"""
     if "_chromo_maps" not in pp:

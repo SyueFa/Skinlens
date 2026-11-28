@@ -16,7 +16,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 from skimage.filters import frangi
-from . import chromophore, wrinkle_seg
+from . import chromophore, color, wrinkle_seg
+from .preprocess import hires, to_face_scale
 from skimage.measure import label, regionprops
 
 # 疊圖顏色 (BGR)
@@ -29,10 +30,10 @@ COLORS = {
 CALIB = {
     "spots": (0.9, 0.35),        # 斑點面積 %
     "wrinkles": (6.0, 2.5),      # 每千像素皺紋長度
-    "texture": (5.0, 1.2),       # 高頻殘差標準差
-    "pores": (12.0, 5.0),        # 每萬像素毛孔數
+    "texture": (4.0, 1.2),       # 兩頰帶通 (0.25–1 mm) 的 log 亮度標準差 × 100
+    "pores": (1.5, 0.6),         # 每平方公分毛孔數
     "uv_spots": (3.0, 1.2),      # UV 暗斑面積 %
-    "brown_spots": (2.5, 1.0),   # 棕色斑面積 %
+    "brown_spots": (2.5, 1.0),   # 棕色斑面積 % (ROI 內)
     "red_areas": (6.0, 2.5),     # 泛紅面積 %
     "porphyrins": (8.0, 3.0),    # 每萬像素紫質螢光點
 }
@@ -59,6 +60,19 @@ SPOT_Z = 3.0
 SPOT_FLOOR = (0.022, 0.011)   # 約手機照片的局部雜訊 (FFHQ 網路照片壓縮雜訊較大，第 5 百分位才到這裡)
 SPOT_MIN_SOLIDITY = 0.75
 SPOT_ROI = ("forehead", "glabella", "nose", "cheek_l", "cheek_r")   # VISIA 斑點的分析範圍
+# 棕色斑 (黑色素圖)：大片色素沉澱 (肝斑) 與局部色斑
+BROWN_Z_DIFFUSE = 2.0
+BROWN_Z_FOCAL = 2.5
+BROWN_SIGMA = 15.0
+# 實際尺寸：成人瞳距平均約 63 mm，用它把像素換成 mm (毛孔、紋理在不同解析度的照片上才可比)
+MM_PER_IPD = 63.0
+PORE_R_MM = (0.15, 0.25, 0.4)       # 偵測的毛孔半徑 (多尺度)
+PORE_AREA_MM2 = (0.03, 0.8)         # 毛孔面積範圍
+PORE_Z = 3.5
+PORE_FLOOR = 0.012                  # 毛孔響應的雜訊下限 (光學密度)
+PORE_ROI = ("nose", "cheek_l", "cheek_r")          # VISIA：兩頰 + 鼻子 (不含額頭)
+TEXTURE_BAND_MM = (0.25, 1.0)       # 紋理帶通 (DoG) 的兩個尺度：避開感光 / JPEG 雜訊，也避開大範圍起伏
+TEXTURE_ROI = ("cheek_l", "cheek_r")                # VISIA：只看兩頰
 
 def logistic(x, mid, scale):
     return float(100 / (1 + np.exp(-(x - mid) / scale)))
@@ -147,12 +161,59 @@ def _spot_exclude(pp):
     return m > 0
 
 
+def _roi(regions, names):
+    m = None
+    for k in names:
+        r = regions[k] > 0
+        m = r if m is None else (m | r)
+    return m
+
+
 def _spot_roi(pp):
     """斑點的分析範圍 (VISIA 總覽畫面的青色框：額頭 + 鼻子 + 兩頰)。"""
-    m = np.zeros(pp["skin"].shape, bool)
-    for k in SPOT_ROI:
-        m |= pp["regions"][k] > 0
+    return _roi(pp["regions"], SPOT_ROI)
+
+
+FOLD_Z = 2.5          # 凹摺陰影：光照成分比周圍暗幾個標準差
+FOLD_MIN_OD = 0.06    # 而且至少暗約 6% (光學密度)
+
+
+def _fold_mask(pp):
+    """凹摺與陰影 (法令紋、笑起來的蘋果肌下緣、眼窩)：色素分離的「光照」成分比周圍明顯偏高 (偏暗) 的帶狀區。
+    陰影不是完美的灰 (皮膚之間互相反射會讓陰影偏棕紅)，會漏一點到黑色素圖、也會被紋理濾波當成凹凸，
+    所以棕色斑、紋理、毛孔都排除這裡。尺度約 2–10% 瞳距，比毛孔、斑點大，比光照場小。"""
+    if "_fold" in pp:
+        return pp["_fold"]
+    skin = pp["skin"] > 0
+    sh = chromophore.shading(chromophore.face_lin(pp))
+    w = skin.astype(np.float32)
+    nb = lambda img, s: cv2.GaussianBlur(img * w, (0, 0), s) / np.maximum(cv2.GaussianBlur(w, (0, 0), s), 1e-3)
+    ipd = pp["ipd"]
+    d = nb(sh, max(1.0, 0.02 * ipd)) - nb(sh, 0.1 * ipd)
+    if skin.sum() < 500:
+        m = np.zeros(skin.shape, bool)
+    else:
+        med, sig = chromophore.robust_stats(d[skin])
+        m = (d - med > max(FOLD_Z * sig, FOLD_MIN_OD)) & skin
+        m = cv2.dilate(m.astype(np.uint8), np.ones((int(0.03 * ipd) | 1,) * 2, np.uint8)) > 0
+    pp["_fold"] = m
     return m
+
+
+def _eyelid_mask(pp):
+    """上眼皮 (眼睛到眉毛之間)：皮膚薄、血管多，天生偏紅偏暗 (VISIA 閉眼拍，眼皮會被拍到但不計分)。"""
+    polys = pp.get("polys")
+    m = np.zeros(pp["skin"].shape, np.uint8)
+    if not polys:
+        for k in ("eye_l", "eye_r"):
+            e = pp["kp"][k]
+            cv2.ellipse(m, (int(e[0]), int(e[1] - 0.15 * pp["ipd"])),
+                        (int(0.38 * pp["ipd"]), int(0.25 * pp["ipd"])), 0, 0, 360, 1, -1)
+        return m > 0
+    for e, b in (("eye_l", "brow_l"), ("eye_r", "brow_r")):
+        hull = cv2.convexHull(np.vstack([polys[e], polys[b]]).astype(np.int32))
+        cv2.fillConvexPoly(m, hull, 1)
+    return cv2.dilate(m, np.ones((int(0.06 * pp["ipd"]) | 1,) * 2, np.uint8)) > 0
 
 
 def detect_spots(pp):
@@ -208,7 +269,45 @@ def _detect_spots_lab(pp):
 
 
 def detect_brown_spots(pp):
-    """棕色斑：黑色素沉澱 (肝斑、曬斑、發炎後色素沉澱)。比周圍暗 + 偏黃棕 (Lab 的 b* 較高)。"""
+    """棕色斑：表皮與真皮的黑色素沉澱 (肝斑、曬斑、雀斑、發炎後色素沉澱)。仿 VISIA RBX 的 B 通道，流程同紅色區：
+      1. 黑色素圖 (chromophore.py)：光照、陰影、血紅素被分到其他成分
+      2. 以自己整張臉的黑色素基準 (中位數、MAD) 為單位 (z)，找兩種異常：
+           大片色素沉澱  平滑後高於全臉基準 (肝斑、曬黑不均)
+           局部色斑      明顯高於周圍 (曬斑、雀斑、痘疤色素沉澱)
+      3. 只在 VISIA 的 ROI 找 (額頭、眉間、鼻子、兩頰)；眼皮、五官交界排除
+      4. 量化：面積 % (raw)、塊數、強度 (平均高出基準幾個標準差)、色素不均度 (ROI 內黑色素的標準差)
+    沒有色素方向檔時退回 Lab 的舊方法。"""
+    mh = chromophore.maps(pp)
+    skin = _core(pp)
+    if mh is None or skin.sum() < 500:
+        return _detect_brown_spots_lab(pp)
+    valid = skin & ~chromophore.invalid_mask(pp, skin) & ~_spot_exclude(pp) & ~_eyelid_mask(pp)
+    roi = valid & _spot_roi(pp) & ~_fold_mask(pp)
+    if roi.sum() < 500:
+        roi = valid
+    mel = cv2.GaussianBlur(mh[0], (0, 0), 1.2)
+    base, sig = chromophore.robust_stats(mel[valid])
+    sig = max(sig, SPOT_FLOOR[0])
+    z = (mel - base) / sig
+    diffuse = (cv2.GaussianBlur(z, (0, 0), 6) > BROWN_Z_DIFFUSE) & roi
+    diffuse, _ = _filter_components(diffuse, 80, 10 ** 7)
+    zl = _local_z(mel, valid, BROWN_SIGMA, SPOT_FLOOR[0])
+    focal = (zl > BROWN_Z_FOCAL) & (z > 1.0) & roi
+    focal = cv2.morphologyEx(focal.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)) > 0
+    focal, _ = _filter_components(focal, 15, 5000, max_ecc=0.95, min_solidity=0.6)
+    mask = diffuse | focal
+    n = int(label(mask).max())
+    raw = 100 * mask.sum() / max(int(roi.sum()), 1)
+    intensity = float(z[mask].mean()) if mask.any() else 0.0
+    _, uneven = chromophore.robust_stats(mel[roi])
+    return _pack("brown_spots", raw, n, mask, pp["regions"],
+                 extra={"pigment_unevenness": round(100 * uneven, 3), "intensity": round(intensity, 3),
+                        "diffuse_pct": round(100 * diffuse.sum() / max(int(roi.sum()), 1), 3),
+                        "method": "melanin"})
+
+
+def _detect_brown_spots_lab(pp):
+    """舊方法：比周圍暗 + 偏黃棕 (Lab 的 b* 較高)。"""
     skin = _core(pp, 15)
     lab = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2LAB).astype(np.float32)   # 光照平整後
     L, b = lab[..., 0], lab[..., 2]
@@ -237,7 +336,12 @@ def detect_red_areas(pp):
     skin = _core(pp)
     if mh is None or skin.sum() < 500:
         return _detect_red_areas_lab(pp)
-    valid = skin & ~chromophore.invalid_mask(pp, skin)
+    # 眼皮天生偏紅 (皮膚薄、血管多) → 不算進基準也不偵測；偵測只在 VISIA 的 ROI (額頭、眉間、鼻子、兩頰)，
+    # 下巴邊緣、鬍子區、嘴角不算
+    valid = skin & ~chromophore.invalid_mask(pp, skin) & ~_eyelid_mask(pp)
+    roi = valid & _spot_roi(pp)
+    if roi.sum() < 500:
+        roi = valid
     hemo = cv2.GaussianBlur(mh[1], (0, 0), 1.2)             # 壓掉感光雜訊 / JPEG 區塊
     base, sig = chromophore.robust_stats(hemo[valid])
     z = (hemo - base) / sig                                   # 高出全臉基準幾個標準差
@@ -245,21 +349,21 @@ def detect_red_areas(pp):
     # 大片泛紅：只和自己的臉比。不用族群的絕對門檻：手機照片光源不受控，白平衡後殘留的色偏
     # 會投影到血紅素方向，暖光下整張臉都被判成泛紅 (VISIA 能直接比是因為燈光固定)。
     # 整張臉偏紅的程度留給特徵 chromo.hemoglobin_mean，由校正模型從人工評分學。
-    diffuse = (cv2.GaussianBlur(z, (0, 0), 6) > RED_Z_DIFFUSE) & valid
+    diffuse = (cv2.GaussianBlur(z, (0, 0), 6) > RED_Z_DIFFUSE) & roi
     diffuse, _ = _filter_components(diffuse, 80, 10 ** 7)
 
     local = hemo - cv2.GaussianBlur(hemo, (0, 0), 12)
     lb, ls = chromophore.robust_stats(local[valid])
-    focal_c = (((local - lb) / ls) > RED_Z_FOCAL) & (z > 1.0) & valid
+    focal_c = (((local - lb) / ls) > RED_Z_FOCAL) & (z > 1.0) & roi
     focal_c = cv2.morphologyEx(focal_c.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)) > 0
     papules, n_pap = _filter_components(focal_c, 12, 400, max_ecc=0.9)
 
     fr = frangi(np.clip(z, -3, 8) / 8, sigmas=(1.0, 1.5, 2.0), black_ridges=False)
-    fr = fr / (fr[valid].max() + 1e-9)
-    vessels, _ = _filter_components((fr > 0.15) & (z > 1.0) & valid, 10, 3000, min_ecc=0.95, min_len=12)
+    fr = fr / (fr[roi].max() + 1e-9)
+    vessels, _ = _filter_components((fr > 0.15) & (z > 1.0) & roi, 10, 3000, min_ecc=0.95, min_len=12)
 
     mask = diffuse | papules | vessels
-    n_valid = max(int(valid.sum()), 1)
+    n_valid = max(int(roi.sum()), 1)
     raw = 100 * mask.sum() / n_valid
     intensity = float(z[mask].mean()) if mask.any() else 0.0
     return _pack("red_areas", raw, n_pap, mask, pp["regions"],
@@ -323,32 +427,111 @@ def _detect_wrinkles_frangi(pp):
                  by_region_fn=lambda m, rm, area: 1000 * skeletonize(m).sum() / area)
 
 
+def zone_spec_free(pp, hr):
+    """高解析度座標上「不是反光 / 過曝」的像素 (VISIA 用偏光消除油光，手機只能排除)。"""
+    if "spec_free" not in hr:
+        skin = pp["skin"] > 0
+        spec = chromophore.invalid_mask(pp, skin).astype(np.uint8)
+        H, W = hr["skin"].shape[:2]
+        if spec.shape[:2] != (H, W):
+            spec = cv2.resize(spec, (W, H), interpolation=cv2.INTER_NEAREST)
+        hr["spec_free"] = spec == 0
+    return hr["spec_free"]
+
+
+def _hr_fold_free(pp, hr):
+    """高解析度座標上「不是凹摺陰影」的像素。"""
+    if "fold_free" not in hr:
+        f = _fold_mask(pp).astype(np.uint8)
+        H, W = hr["skin"].shape[:2]
+        if f.shape[:2] != (H, W):
+            f = cv2.resize(f, (W, H), interpolation=cv2.INTER_NEAREST)
+        hr["fold_free"] = f == 0
+    return hr["fold_free"]
+
+
+def _hr_zone(pp, hr, names):
+    """高解析度影像上的分析範圍：指定分區、扣掉反光，再從皮膚邊緣往內縮約 3 mm
+    (臉的外緣、鼻孔、五官交界的明暗落差會被濾波當成凹凸)。"""
+    e = int(3.0 * hr["ipd"] / MM_PER_IPD) | 1
+    core = cv2.erode(hr["skin"], cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (e, e))) > 0
+    return _roi(hr["regions"], names) & core & zone_spec_free(pp, hr) & _hr_fold_free(pp, hr)
+
+
 def detect_texture(pp):
-    """紋理：皮膚表面平滑度。高通濾波後的殘差越大 = 越粗糙 (角質堆積、凹凸、痘疤)。"""
-    skin = _core(pp, 15)
-    # 光照平整後：亮的地方殘差大、暗的地方小，不平整的話亮度差會被當成粗糙度
-    g = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2GRAY).astype(np.float32)
-    hp = g - cv2.GaussianBlur(g, (0, 0), 4)
-    if not skin.any():
-        return _pack("texture", 0, 0, np.zeros_like(skin), pp["regions"])
-    raw = float(np.std(hp[skin]))
-    local = np.sqrt(np.maximum(cv2.blur(hp ** 2, (15, 15)), 0))
-    mask = (local > max(6.0, raw * 1.6)) & skin
-    return _pack("texture", raw, 0, mask, pp["regions"],
-                 by_region_fn=lambda m, rm, area: float(np.std(hp[rm])))
+    """紋理：皮膚表面平滑度 (凹凸、粗糙、痘疤)。仿 VISIA 只看兩頰：
+      1. 高解析度臉部 (原圖重取，最多 2.5 倍)，光照平整後取 log 亮度 = 同態濾波：
+         亮度變成「相對對比」，亮處、暗處的凹凸一樣大；大範圍的光線漸層已被平整掉
+      2. 帶通 (DoG，0.25–1 mm，用瞳距換成像素)：太細的是感光 / JPEG 雜訊，太粗的是臉的輪廓起伏，都不算
+      3. 只看兩頰，扣掉反光 (鼻子、額頭的油光和毛孔會干擾)
+      4. 量化：帶通殘差的標準差 (× 100，約等於凹凸造成的亮度起伏 %) → 族群校準
+    尺度用 mm 定義，臉大臉小、照片解析度不同時量到的是同樣大小的凹凸。"""
+    hr = hires(pp)
+    zone = _hr_zone(pp, hr, TEXTURE_ROI)
+    if zone.sum() < 500:
+        return _pack("texture", 0, 0, np.zeros(pp["skin"].shape, bool), {})
+    px_mm = hr["ipd"] / MM_PER_IPD
+    Y = np.log(np.maximum(hr["lin"] @ np.asarray(color.Y_BGR, np.float32), 1e-4)).astype(np.float32)
+    s1 = max(0.7, TEXTURE_BAND_MM[0] * px_mm)
+    s2 = TEXTURE_BAND_MM[1] * px_mm
+    w = ((hr["skin"] > 0) & zone_spec_free(pp, hr)).astype(np.float32)
+
+    def nblur(s):      # 只用皮膚加權的模糊：頭髮、背景、反光的明暗落差不會滲進來
+        return cv2.GaussianBlur(Y * w, (0, 0), s) / np.maximum(cv2.GaussianBlur(w, (0, 0), s), 1e-3)
+    dog = nblur(s1) - nblur(s2)
+
+    def rough(sel):
+        v = dog[sel]
+        lo, hi = np.percentile(v, [0.5, 99.5])      # 少數極端值 (漏網的反光、睫毛) 不影響
+        return 100 * float(np.std(np.clip(v, lo, hi)))
+
+    raw = rough(zone)
+    k = int(2 * px_mm) | 1                          # 局部粗糙度：約 2 mm 的範圍
+    local = 100 * np.sqrt(np.maximum(cv2.blur(dog ** 2, (k, k)), 0))
+    mask = to_face_scale((local > max(1.6 * raw, 1.0)) & zone, pp)
+    res = _pack("texture", raw, 0, mask, {})
+    res["by_region"] = {r: round(rough((hr["regions"][r] > 0) & zone), 3) for r in TEXTURE_ROI
+                        if ((hr["regions"][r] > 0) & zone).sum() > 200 * hr["k"] ** 2}
+    return res
+
+
+def _pore_response(sh, px_mm):
+    """多尺度 LoG：毛孔 = 比周圍暗 (光照成分偏高) 的小圓點。尺度依實際大小 (mm) 換成像素，取各尺度最大值。"""
+    best = None
+    for r in PORE_R_MM:
+        s = max(0.7, r * px_mm / np.sqrt(2))
+        resp = -(s ** 2) * cv2.Laplacian(cv2.GaussianBlur(sh, (0, 0), s), cv2.CV_32F)
+        best = resp if best is None else np.maximum(best, resp)
+    return best
 
 
 def detect_pores(pp):
-    """毛孔：鼻子、臉頰上規則分佈的小圓形暗點。小核黑帽 + 面積/圓度篩選。"""
-    reg = pp["regions"]
-    zone = (reg["nose"] > 0) | (reg["cheek_l"] > 0) | (reg["cheek_r"] > 0) | (reg["forehead"] > 0)
-    g = pp["gray_clahe"]
-    bh = cv2.morphologyEx(g, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
-    cand = (bh > 12) & zone
-    mask, n = _filter_components(cand, 3, 60, max_ecc=0.9)
-    raw = 10000 * n / max(zone.sum(), 1)
-    return _pack("pores", raw, n, mask, reg,
-                 by_region_fn=lambda m, rm, area: 10000 * label(m).max() / area)
+    """毛孔：兩頰 + 鼻子的小圓形暗點 (VISIA 的範圍，不含額頭)。
+      1. 高解析度臉部 (原圖重取，最多 2.5 倍)：臉寬 600 px 時毛孔只有 1–2 個像素
+      2. 去掉色素干擾：用色素分離的「光照 / 凹凸」成分 (雀斑、痘印被分到黑色素 / 血紅素，不會被當成毛孔)，
+         不用 CLAHE (各區增強幅度不同，固定門檻會失準)
+      3. 多尺度 LoG (毛孔半徑 0.15 / 0.25 / 0.4 mm，用瞳距換成像素)，比自己臉上的雜訊高 PORE_Z 倍以上
+      4. 面積 0.03–0.8 mm²、接近圓形；扣掉反光
+      5. 量化：每平方公分毛孔數 → 族群校準 (用實際面積，不同解析度的照片可比)"""
+    hr = hires(pp)
+    zone = _hr_zone(pp, hr, PORE_ROI)
+    if zone.sum() < 500:
+        return _pack("pores", 0, 0, np.zeros(pp["skin"].shape, bool), {})
+    px_mm = hr["ipd"] / MM_PER_IPD
+    resp = _pore_response(chromophore.shading(hr["lin"]), px_mm)
+    med, sig = chromophore.robust_stats(resp[zone])
+    z = (resp - med) / max(sig, PORE_FLOOR)
+    cand = (z > PORE_Z) & zone
+    a0 = max(2, int(PORE_AREA_MM2[0] * px_mm ** 2))
+    a1 = max(a0 + 1, int(PORE_AREA_MM2[1] * px_mm ** 2))
+    mask_hr, n = _filter_components(cand, a0, a1, max_ecc=0.9)
+    per_cm2 = lambda m, sel: label(m & sel).max() / max(sel.sum() / px_mm ** 2 / 100, 1e-6)
+    raw = per_cm2(mask_hr, zone)
+    res = _pack("pores", raw, n, to_face_scale(mask_hr, pp), {},
+                extra={"pore_noise": round(100 * sig, 3)})
+    res["by_region"] = {r: round(float(per_cm2(mask_hr, (hr["regions"][r] > 0) & zone)), 3) for r in PORE_ROI
+                        if ((hr["regions"][r] > 0) & zone).sum() > 200 * hr["k"] ** 2}
+    return res
 
 
 # ------------------------------------------------------------------------ UV 光源指標
@@ -402,7 +585,7 @@ def feature_vector(results, pp):
         for reg, v in r["by_region"].items():
             feats[f"{k}.{reg}"] = v
         for extra in ("pigment_unevenness", "inflamed_spots", "intensity", "diffuse_pct", "vessel_pct",
-                      "brown_count", "red_count"):
+                      "brown_count", "red_count", "pore_noise"):
             if extra in r:
                 feats[f"{k}.{extra}"] = r[extra]
     skin = pp["skin"] > 0
