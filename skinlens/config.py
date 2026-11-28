@@ -23,7 +23,7 @@ CONSENT_SAVE_DIR = os.environ.get("CONSENT_SAVE_DIR") or None
 
 FACE_SIZE = 600       # 對齊後臉部影像寬度 (px)，所有指標都在這個尺度上計算，數值才可比較
 MIN_PEERS = 10        # 同齡層至少幾筆資料才計算百分位
-MAX_UPLOAD_MB = 15
+MAX_UPLOAD_MB = 40     # 拍照流程：完整解析度的正臉 + 兩張側臉 + 睜眼影格
 
 for d in (UPLOAD_DIR, PROC_DIR, HISTORY_DIR, MODEL_DIR):
     d.mkdir(parents=True, exist_ok=True)

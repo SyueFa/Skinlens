@@ -51,13 +51,27 @@ window.SLPose = (function () {
     };
   }
 
+  // 拍照流程跟鏡頭要高解析度 (可能到 4K)，每秒偵測 15 次會拖慢手機：先縮到 DETECT_MAX 再偵測。
+  // 特徵點是 0–1 的比例座標，縮小不影響位置
+  const DETECT_MAX = 640;
+  let small = null;
+  function source(video) {
+    const w = video.videoWidth, h = video.videoHeight, s = DETECT_MAX / Math.max(w, h);
+    if (s >= 1) return video;
+    small = small || document.createElement("canvas");
+    const W = Math.round(w * s), H = Math.round(h * s);
+    if (small.width !== W || small.height !== H) { small.width = W; small.height = H; }
+    small.getContext("2d").drawImage(video, 0, 0, W, H);
+    return small;
+  }
+
   function detect(video) {
     if (!landmarker || video.readyState < 2) return null;
     let ts = performance.now();
     if (ts <= lastTs) ts = lastTs + 1;   // VIDEO 模式的時間戳必須遞增
     lastTs = ts;
     let res;
-    try { res = landmarker.detectForVideo(video, ts); } catch (e) { return null; }
+    try { res = landmarker.detectForVideo(source(video), ts); } catch (e) { return null; }
     if (!res.faceLandmarks?.length || !res.facialTransformationMatrixes?.length) return null;
     const pts = res.faceLandmarks[0];
     const l = pts[234], r = pts[454], top = pts[10], chin = pts[152];

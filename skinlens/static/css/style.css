@@ -132,3 +132,7 @@ body { line-height: 1.7; }
 .sl-diagram .node.ext { stroke: #6b6f80; stroke-dasharray: 5 3; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* 快門閃白 (capture.js shutterFx) */
+.sl-cam-flash { position: absolute; inset: 0; background: #fff; pointer-events: none; animation: sl-flash .45s ease-out forwards; }
+@keyframes sl-flash { from { opacity: .9; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sl-cam-flash { animation-duration: .15s; } }

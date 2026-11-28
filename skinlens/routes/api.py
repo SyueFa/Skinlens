@@ -1,4 +1,5 @@
 """使用者 API：膚況分析、歷史紀錄、指標知識庫。"""
+import json
 import os
 from flask import Blueprint, request, jsonify, g, send_file, abort
 from ..auth import login_required
@@ -16,6 +17,28 @@ def _int_or_none(v, lo, hi):
     except (TypeError, ValueError):
         return None
     return v if lo <= v <= hi else None
+
+
+def _capture_info(s):
+    """拍照流程送來的拍攝方式 (photo = 真正拍照 / video = 影片畫面) 與解析度。只留已知欄位、限制大小。"""
+    if not s or len(s) > 1000:
+        return None
+    try:
+        d = json.loads(s)
+    except ValueError:
+        return None
+    def one(x):
+        if not isinstance(x, dict):
+            return None
+        out = {"w": int(x.get("w") or 0), "h": int(x.get("h") or 0)}
+        if x.get("method"):
+            out["method"] = str(x["method"])[:10]
+        return out
+    try:
+        return {"still": one(d.get("still")), "video": one(d.get("video")),
+                "sides": [one(x) for x in (d.get("sides") or [])[:2]]}
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 @bp.post("/analyze")
@@ -37,9 +60,10 @@ def analyze():
     frames = [b for b in (fr.read() for fr in request.files.getlist("frames")[:MAX_FRAMES]) if b]
     device = (form.get("device") or "").strip()[:60] or None   # 網頁相機沒有 EXIF，由前端從瀏覽器資訊推測
     sides = [b for b in (s.read() for s in request.files.getlist("sides")[:2]) if b]   # 左、右轉的側臉照片
+    capture = _capture_info(form.get("capture"))
     try:
         report = analyzer.analyze(data, lighting, age, gender, skin_type, consent, user=g.user,
-                                  frames=frames, device=device, sides=sides)
+                                  frames=frames, device=device, sides=sides, capture=capture)
     except ValueError as e:          # 讀不到圖、找不到臉等
         return jsonify(error=str(e)), 422
     return jsonify(report)

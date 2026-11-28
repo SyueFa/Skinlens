@@ -41,6 +41,10 @@ def device_model(data: bytes):
     return model if model.lower().startswith(make.lower()) else f"{make} {model}".strip()
 
 
+LOAD_MAX = 4096      # 讀圖時的最長邊上限
+DETECT_MAX = 1600    # 臉部偵測用的最長邊 (以前讀圖就直接縮到這麼小，高解析度都丟掉了)
+
+
 def load_image(path_or_bytes) -> np.ndarray:
     """讀圖並依 EXIF 轉正 (手機照片常見問題)，回傳 BGR。"""
     import io
@@ -50,9 +54,10 @@ def load_image(path_or_bytes) -> np.ndarray:
         raise ValueError("無法讀取圖片，請上傳 JPG / PNG 格式")
     img = ImageOps.exif_transpose(img).convert("RGB")
     arr = np.array(img)
-    # 太大的圖先縮，加速偵測
+    # 保留高解析度 (毛孔、紋理會從原圖重取)，只限制在 LOAD_MAX 以內避免太耗記憶體；
+    # 臉部偵測另外在縮小的影像上做 (detect_face_scaled)
     h, w = arr.shape[:2]
-    s = 1600 / max(h, w)
+    s = LOAD_MAX / max(h, w)
     if s < 1:
         arr = cv2.resize(arr, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
     return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
@@ -149,6 +154,18 @@ def _transform(det, M):
     return {**det, "kp": kp, "polys": polys}
 
 
+def detect_face_scaled(bgr):
+    """在縮小到 DETECT_MAX 的影像上偵測 (速度和以前一樣)，特徵點再換回原圖座標。"""
+    h, w = bgr.shape[:2]
+    s = DETECT_MAX / max(h, w)
+    if s >= 1:
+        return detect_face(bgr)
+    det = detect_face(cv2.resize(bgr, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA))
+    if det is None:
+        return None
+    return _transform(det, np.array([[1 / s, 0, 0], [0, 1 / s, 0]], np.float32))
+
+
 def align_and_crop(bgr, det):
     """以雙眼連線轉正、裁出臉部、縮放到 FACE_SIZE 寬。"""
     kp = det["kp"]
@@ -168,7 +185,16 @@ def align_and_crop(bgr, det):
     s = FACE_SIZE / (x1 - x0)
     M = np.array([[s, 0, -x0 * s], [0, s, -y0 * s]], np.float32)
     out_h = int((y1 - y0) * s)
-    face = cv2.warpAffine(rot, M, (FACE_SIZE, out_h), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE)
+    if s < 0.9:
+        # 原圖比 600 px 大很多時，warpAffine 縮小會產生鋸齒與雜訊 (它不支援真正的面積平均)：
+        # 先用 resize 的面積平均縮小，再平移裁切 (整體轉換還是 M)
+        small = cv2.resize(rot, (max(1, round(rot.shape[1] * s)), max(1, round(rot.shape[0] * s))),
+                           interpolation=cv2.INTER_AREA)
+        sx, sy = small.shape[1] / rot.shape[1], small.shape[0] / rot.shape[0]
+        T = np.array([[s / sx, 0, -x0 * s], [0, s / sy, -y0 * s]], np.float32)
+        face = cv2.warpAffine(small, T, (FACE_SIZE, out_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    else:
+        face = cv2.warpAffine(rot, M, (FACE_SIZE, out_h), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE)
     det = _transform(det, M)
     warp = (np.vstack([M, [0, 0, 1]]) @ np.vstack([R, [0, 0, 1]]))[:2].astype(np.float32)   # 原圖 → 臉部座標
     return face, det, angle, fw, warp
@@ -193,6 +219,7 @@ def apply_color(pp, illuminant=None):
     pp["gray_clahe"] = clahe_gray(pp["face_flat"])
     pp.pop("_chromo_maps", None)       # 色素分離的快取跟著失效
     pp.pop("_hr", None)
+    pp.pop("_hr1", None)
     pp.pop("_fold", None)
     return pp
 
@@ -222,23 +249,36 @@ def hires(pp):
         return pp["_hr"]
     k = hr_scale(pp)
     if k == 1.0:
-        out = {"k": 1.0, "lin": pp["face_lin"] * pp["light_gain"][..., None], "skin": pp["skin"],
-               "regions": pp["regions"], "ipd": pp["ipd"]}
-    else:
-        h, w = pp["face_raw"].shape[:2]
-        W, H = int(round(w * k)), int(round(h * k))
-        raw = cv2.warpAffine(pp["src"], pp["warp"] * k, (W, H), flags=cv2.INTER_LINEAR,
-                             borderMode=cv2.BORDER_REPLICATE)
-        lin = color.to_linear(raw).astype(np.float32)
-        illum = pp["color"].get("illuminant_bgr")
-        if illum is not None:
-            lin = color.apply_illuminant(lin, illum)
-        lin *= cv2.resize(pp["light_gain"], (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
-        up = lambda m: cv2.resize(m, (W, H), interpolation=cv2.INTER_NEAREST)
-        out = {"k": k, "lin": lin, "skin": up(pp["skin"]), "regions": {r: up(m) for r, m in pp["regions"].items()},
-               "ipd": pp["ipd"] * k}
-    pp["_hr"] = out
-    return out
+        pp["_hr"] = base_res(pp)
+        return pp["_hr"]
+    h, w = pp["face_raw"].shape[:2]
+    W, H = int(round(w * k)), int(round(h * k))
+    src, Mk = pp["src"], pp["warp"] * k
+    r = float(np.hypot(Mk[0, 0], Mk[0, 1]))          # 原圖 → 高解析度臉部的縮放倍數
+    if r < 0.8:                                        # 原圖比 2.5 倍還大：先面積平均縮小，避免鋸齒
+        src = cv2.resize(src, (max(1, round(src.shape[1] * r)), max(1, round(src.shape[0] * r))),
+                         interpolation=cv2.INTER_AREA)
+        fx, fy = src.shape[1] / pp["src"].shape[1], src.shape[0] / pp["src"].shape[0]
+        Mk = (Mk @ np.diag([1 / fx, 1 / fy, 1.0])).astype(np.float32)
+    raw = cv2.warpAffine(src, Mk, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    lin = color.to_linear(raw).astype(np.float32)
+    illum = pp["color"].get("illuminant_bgr")
+    if illum is not None:
+        lin = color.apply_illuminant(lin, illum)
+    lin *= cv2.resize(pp["light_gain"], (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
+    up = lambda m: cv2.resize(m, (W, H), interpolation=cv2.INTER_NEAREST)
+    pp["_hr"] = {"k": k, "lin": lin, "skin": up(pp["skin"]), "ipd": pp["ipd"] * k,
+                 "regions": {name: up(m) for name, m in pp["regions"].items()}}
+    return pp["_hr"]
+
+
+def base_res(pp):
+    """標準解析度 (臉寬 600 px) 的同一組資料，格式和 hires 相同。毛孔計分用這個：
+    解析度越高看到的小毛孔越多，參考族群 (FFHQ) 只有這個解析度，計分要在同樣條件下比才公平。"""
+    if "_hr1" not in pp:
+        pp["_hr1"] = {"k": 1.0, "lin": pp["face_lin"] * pp["light_gain"][..., None], "skin": pp["skin"],
+                      "regions": pp["regions"], "ipd": pp["ipd"]}
+    return pp["_hr1"]
 
 
 def to_face_scale(mask_hr, pp):
@@ -427,7 +467,7 @@ def quality_check(face, skin, face_px):
 
 def preprocess(bgr, illuminant=None):
     """illuminant：已知光源 (拍照流程)；不給就由照片自己估 (眼白，不行再用 SoG)。"""
-    det = detect_face(bgr)
+    det = detect_face_scaled(bgr)
     if det is None:
         raise ValueError("偵測不到臉部，請上傳正面、清楚、無遮擋的臉部照片")
     face_raw, det, roll, face_px, warp = align_and_crop(bgr, det)

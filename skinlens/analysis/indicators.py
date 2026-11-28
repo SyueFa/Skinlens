@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from skimage.filters import frangi
 from . import chromophore, color, wrinkle_seg
-from .preprocess import hires, to_face_scale
+from .preprocess import hires, base_res, to_face_scale
 from skimage.measure import label, regionprops
 
 # 疊圖顏色 (BGR)
@@ -512,11 +512,31 @@ def detect_pores(pp):
          不用 CLAHE (各區增強幅度不同，固定門檻會失準)
       3. 多尺度 LoG (毛孔半徑 0.15 / 0.25 / 0.4 mm，用瞳距換成像素)，比自己臉上的雜訊高 PORE_Z 倍以上
       4. 面積 0.03–0.8 mm²、接近圓形；扣掉反光
-      5. 量化：每平方公分毛孔數 → 族群校準 (用實際面積，不同解析度的照片可比)"""
-    hr = hires(pp)
-    zone = _hr_zone(pp, hr, PORE_ROI)
-    if zone.sum() < 500:
+      5. 量化：每平方公分毛孔數 → 族群校準
+    計分用標準解析度 (臉寬 600 px)：解析度越高看得到的小毛孔越多 (同一張臉 2.5 倍時約多一倍)，
+    參考族群只有標準解析度，要在同樣條件下比才公平。高解析度的結果用來畫在臉上，
+    數值另外記成 pores_hr_per_cm2 (之後有手機照片的參考族群再改用它計分)。"""
+    base = _pores_at(pp, base_res(pp))
+    if base is None:
         return _pack("pores", 0, 0, np.zeros(pp["skin"].shape, bool), {})
+    raw, n, mask, sig, by_region = base
+    extra = {"pore_noise": round(100 * sig, 3)}
+    hr = hires(pp)
+    if hr["k"] > 1.0:
+        hi = _pores_at(pp, hr)
+        if hi is not None:
+            extra["pores_hr_per_cm2"] = round(float(hi[0]), 3)
+            mask = hi[2]                      # 畫在臉上的用高解析度的 (位置比較準、小毛孔也看得到)
+    res = _pack("pores", raw, n, mask, {}, extra=extra)
+    res["by_region"] = by_region
+    return res
+
+
+def _pores_at(pp, hr):
+    """在指定解析度上偵測毛孔 → (每平方公分毛孔數, 個數, 600 px 座標的遮罩, 雜訊, 各分區密度)；範圍太小回傳 None。"""
+    zone = _hr_zone(pp, hr, PORE_ROI)
+    if zone.sum() < 500 * hr["k"] ** 2:
+        return None
     px_mm = hr["ipd"] / MM_PER_IPD
     resp = _pore_response(chromophore.shading(hr["lin"]), px_mm)
     med, sig = chromophore.robust_stats(resp[zone])
@@ -525,13 +545,10 @@ def detect_pores(pp):
     a0 = max(2, int(PORE_AREA_MM2[0] * px_mm ** 2))
     a1 = max(a0 + 1, int(PORE_AREA_MM2[1] * px_mm ** 2))
     mask_hr, n = _filter_components(cand, a0, a1, max_ecc=0.9)
-    per_cm2 = lambda m, sel: label(m & sel).max() / max(sel.sum() / px_mm ** 2 / 100, 1e-6)
-    raw = per_cm2(mask_hr, zone)
-    res = _pack("pores", raw, n, to_face_scale(mask_hr, pp), {},
-                extra={"pore_noise": round(100 * sig, 3)})
-    res["by_region"] = {r: round(float(per_cm2(mask_hr, (hr["regions"][r] > 0) & zone)), 3) for r in PORE_ROI
-                        if ((hr["regions"][r] > 0) & zone).sum() > 200 * hr["k"] ** 2}
-    return res
+    per_cm2 = lambda sel: label(mask_hr & sel).max() / max(sel.sum() / px_mm ** 2 / 100, 1e-6)
+    by_region = {r: round(float(per_cm2((hr["regions"][r] > 0) & zone)), 3) for r in PORE_ROI
+                 if ((hr["regions"][r] > 0) & zone).sum() > 200 * hr["k"] ** 2}
+    return per_cm2(zone), n, to_face_scale(mask_hr, pp), sig, by_region
 
 
 # ------------------------------------------------------------------------ UV 光源指標
@@ -585,7 +602,7 @@ def feature_vector(results, pp):
         for reg, v in r["by_region"].items():
             feats[f"{k}.{reg}"] = v
         for extra in ("pigment_unevenness", "inflamed_spots", "intensity", "diffuse_pct", "vessel_pct",
-                      "brown_count", "red_count", "pore_noise"):
+                      "brown_count", "red_count", "pore_noise", "pores_hr_per_cm2"):
             if extra in r:
                 feats[f"{k}.{extra}"] = r[extra]
     skin = pp["skin"] > 0

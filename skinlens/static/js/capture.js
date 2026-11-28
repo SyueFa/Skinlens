@@ -3,13 +3,20 @@
  *   → (選用) 眼睛繼續閉著，轉向左邊、右邊，轉夠了才各拍一張側臉。
  * 閉眼時看不到螢幕，所以倒數、姿勢提示與完成都用嗶聲 + 語音。
  * 臉部偵測 (facepose.js) 載入失敗時退回只按秒數倒數，後端仍會檢查角度並提醒。
- * 用法：SLCapture.start({video, canvas, guide, onStatus(title, count), onDone({still, frames, sides}), onError(msg), withSides})
+ * 拍照：支援的瀏覽器 (Android Chrome) 用真正的拍照功能拿相機完整解析度；不支援 (iPhone Safari)
+ *   改用最高解析度的影片畫面。偵測與引導照常在即時畫面上跑，只有快門那一刻換成拍照，並有閃白 + 快門聲。
+ * 用法：SLCapture.start({video, canvas, guide, onStatus(title, count), onDone({still, frames, sides, info}), onError(msg), withSides})
+ *   info：每張照片怎麼拍的 (photo = 真正拍照 / video = 影片畫面) 與解析度，送給後端記錄
  *       SLCapture.stop()
  */
 window.SLCapture = (function () {
   const OPEN_SEC = 5, CLOSE_SEC = 3, SIDE_SEC = 3;
   const FRAME_EVERY_MS = 600, FRAME_START_MS = 1000;   // 前 1 秒讓自動曝光穩定，之後每 0.6 秒抓一張
-  const FRAME_MAX_SIDE = 1280, STILL_MAX_SIDE = 2400;   // 影格只用來看眼白，不必太大
+  const FRAME_MAX_SIDE = 1280, STILL_MAX_SIDE = 4096;   // 影格只用來看眼白，不必太大；照片要越清楚越好 (毛孔、紋理)
+  // 跟鏡頭要的畫面解析度：越高越好，拿不到時瀏覽器會給最接近的 (ideal 不會失敗)
+  const VIDEO_IDEAL = {width: {ideal: 4096}, height: {ideal: 3072}};
+  const VIDEO_FALLBACK = {width: {ideal: 1920}, height: {ideal: 1440}};
+  const PHOTO_TIMEOUT_MS = 4000;            // 真正拍照 (ImageCapture) 最多等多久，逾時改用畫面擷取
   // 姿勢引導：正臉容許的角度 (度)。後端超過 15 度才警告，這裡抓嚴一點；一般自拍上下約 −5 ~ −11 度
   const POSE_OK = {yaw: 10, pitch: 12};
   const SIDE_MIN_YAW = 25;                  // 側臉至少轉這麼多度才拍 (目標約 45 度)
@@ -19,7 +26,7 @@ window.SLCapture = (function () {
   const ALIGN_HOLD_MS = 800, ALIGN_MAX_MS = 30000;   // 對正後要穩定多久才開始；最多等多久
   const SHOT_WAIT_MS = 4000, SIDE_WAIT_MS = 7000;    // 閉眼拍照前 / 側臉等姿勢的上限
   const VOICE_GAP_MS = 2500;                // 語音提示的最短間隔
-  let stream = null, timers = [], audio = null, cancelled = false;
+  let stream = null, timers = [], audio = null, cancelled = false, photoCap = null, photoOff = false;
   let poseOn = false, cur = {pose: null, ok: false, hint: ""}, mode = "front", raf = 0, lastVoice = 0, lastHint = "";
 
   function beep(freq = 880, ms = 150) {
@@ -50,6 +57,65 @@ window.SLCapture = (function () {
     c.width = Math.round(w * s); c.height = Math.round(h * s);
     c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);   // 不鏡像：存真實方向
     return new Promise(res => c.toBlob(res, "image/jpeg", quality));
+  }
+
+  // ---------------------------------------------------------------- 拍照
+  // 快門回饋：畫面閃白 + 快門聲 (閉眼時靠聲音知道拍好了；閃白也蓋過部分手機拍照時畫面頓一下)
+  function shutterFx(box) {
+    if (box) {
+      const f = document.createElement("div");
+      f.className = "sl-cam-flash";
+      box.appendChild(f);
+      setTimeout(() => f.remove(), 450);
+    }
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const n = Math.round(audio.sampleRate * 0.07), buf = audio.createBuffer(1, n, audio.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);   // 短促的「喀」
+      const src = audio.createBufferSource(), g = audio.createGain();
+      g.gain.value = 0.5; src.buffer = buf; src.connect(g); g.connect(audio.destination); src.start();
+    } catch (e) { /* 沒有聲音也能拍 */ }
+  }
+
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => timers.push(setTimeout(() => rej(new Error("timeout")), ms)))]);
+  }
+
+  // 真正拍照 (Android Chrome 等支援 ImageCapture 的瀏覽器)：拿相機的完整解析度，不是影片畫面。
+  // iPhone Safari 不支援 → 回傳 null，改用最高解析度的影片畫面。
+  // 方向對不上 (有些裝置回傳感光元件原始方向) 或沒有比影片畫面清楚時也不用，避免後端找不到臉
+  async function takePhoto(video) {
+    const track = stream?.getVideoTracks()[0];
+    if (photoOff || !window.ImageCapture || !track) return null;
+    try {
+      photoCap = photoCap || new ImageCapture(track);
+      let opts = {};
+      try {
+        const c = await withTimeout(photoCap.getPhotoCapabilities(), 1500);
+        if (c.imageWidth?.max) opts = {imageWidth: c.imageWidth.max, imageHeight: c.imageHeight.max};
+      } catch (e) { /* 用預設尺寸 */ }
+      const blob = await withTimeout(photoCap.takePhoto(opts), PHOTO_TIMEOUT_MS);
+      if (!blob || blob.size < 20000) return null;
+      const bmp = await createImageBitmap(blob);   // 會套用 EXIF 方向，和後端讀圖一致
+      const w = bmp.width, h = bmp.height;
+      bmp.close && bmp.close();
+      const sameDir = (h >= w) === (video.videoHeight >= video.videoWidth);
+      if (!sameDir || Math.max(w, h) <= Math.max(video.videoWidth, video.videoHeight)) return null;
+      return {blob, method: "photo", w, h};
+    } catch (e) {
+      console.warn("拍照功能無法使用，改用影片畫面：", e);
+      photoOff = true; photoCap = null;
+      return null;
+    }
+  }
+
+  async function shoot(video) {
+    shutterFx(video.parentElement);
+    const p = await takePhoto(video);
+    if (p) return p;
+    const blob = await grab(video, STILL_MAX_SIDE, 0.95);
+    return {blob, method: "video", w: video.videoWidth, h: video.videoHeight};
   }
 
   async function lockWhiteBalance(track) {
@@ -157,8 +223,13 @@ window.SLCapture = (function () {
       onError("這個瀏覽器無法使用相機 (需要 https 或 localhost)，請改用上傳照片"); return;
     }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {facingMode: "user", width: {ideal: 1920}, height: {ideal: 1440}}, audio: false});
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "user", ...VIDEO_IDEAL}, audio: false});
+      } catch (e) {
+        if (e.name !== "OverconstrainedError") throw e;   // 少數瀏覽器對高解析度要求報錯 → 降回原本的設定
+        stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "user", ...VIDEO_FALLBACK}, audio: false});
+      }
+      photoCap = null; photoOff = false;
     } catch (e) {
       onError(e.name === "NotAllowedError" ? "沒有相機權限，請在瀏覽器允許使用相機後再試" : "無法開啟相機：" + e.message);
       return;
@@ -228,7 +299,10 @@ window.SLCapture = (function () {
       if (cancelled) return;
     }
     onStatus("拍照中…", "");
-    const still = await grab(video, STILL_MAX_SIDE, 0.95);
+    const front = await shoot(video);
+    const still = front.blob;
+    const info = {still: {method: front.method, w: front.w, h: front.h}, sides: [],
+                  video: {w: video.videoWidth, h: video.videoHeight}};
     const shots = [];
 
     // 4. (選用) 側臉：眼睛繼續閉著，轉向左、右各拍一張 (看魚尾紋與外側臉頰，像 VISIA 的側面照)
@@ -257,14 +331,16 @@ window.SLCapture = (function () {
           }
         }
         onStatus("拍照中…", "");
-        shots.push(await grab(video, STILL_MAX_SIDE, 0.95));
+        const s = await shoot(video);
+        shots.push(s.blob);
+        info.sides.push({method: s.method, w: s.w, h: s.h});
       }
     }
 
     beep(1320, 400);
     say("好了，可以睜開眼睛");
     stop();
-    onDone({still, frames, sides: shots});
+    onDone({still, frames, sides: shots, info});
   }
 
   // 網頁相機拍的照片沒有 EXIF，從瀏覽器資訊推測裝置 (Android 會帶型號代碼，iPhone 只知道是 iPhone)，

@@ -267,10 +267,13 @@ def save_capture_local(data, frames, sides, pp, results, report, device):
 
 
 def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=None, consent=False, user=None,
-            frames=None, device=None, sides=None):
+            frames=None, device=None, sides=None, capture=None):
     """網站上傳分析。會員 → 存入歷史紀錄；勾選同意 → 照片另存訓練資料池。
-    frames：網頁拍照流程的睜眼影格，用來校色閉眼照片。sides：左、右轉的側臉照片 (補充分析)。"""
+    frames：網頁拍照流程的睜眼影格，用來校色閉眼照片。sides：左、右轉的側臉照片 (補充分析)。
+    capture：拍照流程記錄的拍攝方式 (真正拍照 / 影片畫面) 與解析度，存進照片品質資訊。"""
     pp, results, feats = extract(data, lighting, frames, device)
+    if capture:
+        pp["quality"]["capture"] = capture
     report = build_report(pp, results, age, lighting)
     if sides:
         ill = pp["color"].get("illuminant_bgr")
