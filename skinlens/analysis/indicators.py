@@ -53,16 +53,24 @@ if _WRINKLE_LABEL_FILE.exists():
 # 紅色區 (RBX 式) 的門檻：單位是「高出全臉血紅素基準幾個標準差 (MAD 換算)」
 RED_Z_DIFFUSE = 2.0     # 大片泛紅 (平滑後)
 RED_Z_FOCAL = 3.0       # 局部紅點 (相對周圍)
+# 斑點 (色素圖的局部偏高)：周圍範圍 σ (px，臉寬 600)、門檻 z、雜訊下限 (黑色素, 血紅素；光學密度單位)
+SPOT_SIGMA = 10.0
+SPOT_Z = 3.0
+SPOT_FLOOR = (0.022, 0.011)   # 約手機照片的局部雜訊 (FFHQ 網路照片壓縮雜訊較大，第 5 百分位才到這裡)
+SPOT_MIN_SOLIDITY = 0.75
+SPOT_ROI = ("forehead", "glabella", "nose", "cheek_l", "cheek_r")   # VISIA 斑點的分析範圍
 
 def logistic(x, mid, scale):
     return float(100 / (1 + np.exp(-(x - mid) / scale)))
 
 
-def _filter_components(binary, min_area, max_area, max_ecc=None, min_ecc=None, min_len=None):
+def _filter_components(binary, min_area, max_area, max_ecc=None, min_ecc=None, min_len=None, min_solidity=None):
     lab = label(binary > 0)
     keep = []
     for r in regionprops(lab):
         if not (min_area <= r.area <= max_area):
+            continue
+        if min_solidity is not None and r.solidity < min_solidity:   # 月牙形、不規則形 (鼻翼溝、陰影邊緣)
             continue
         if max_ecc is not None and r.eccentricity > max_ecc:
             continue
@@ -100,8 +108,95 @@ def _pack(name, raw, count, mask, regions, by_region_fn=_area_pct, extra=None, c
 
 
 # ------------------------------------------------------------------------ 可見光指標
+def _local_z(img, valid, sigma, floor):
+    """色素圖的「局部偏高」：減掉周圍的平均 (只用有效皮膚做加權模糊，五官、反光不會被抹進來)，
+    再除以自己臉上的雜訊 (MAD 換算的標準差，至少 floor，避免很乾淨的臉把微小起伏也放大成斑點)。"""
+    v = valid.astype(np.float32)
+    num = cv2.GaussianBlur(np.where(valid, img, 0).astype(np.float32), (0, 0), sigma)
+    den = cv2.GaussianBlur(v, (0, 0), sigma)
+    local = img - num / np.maximum(den, 1e-3)
+    med, sig = chromophore.robust_stats(local[valid])
+    return (local - med) / max(sig, floor)
+
+
+def _spot_exclude(pp):
+    """斑點偵測額外排除的五官交界 (天生色差、陰影、鬍根，不是斑點)：
+      鼻翼與鼻孔下緣  鼻翼溝天生較紅、鼻孔邊有陰影、男生還有鬍根
+      嘴角            唇緣偏紅、嘴角紋路的陰影、鬍根
+      內眼角          淚阜的粉紅色、鼻樑側面的陰影"""
+    kp, ipd = pp["kp"], pp["ipd"]
+    cx = (kp["eye_l"][0] + kp["eye_r"][0]) / 2
+    ny = kp["nose"][1]
+    m = np.zeros(pp["skin"].shape, np.uint8)
+    cv2.rectangle(m, (int(cx - 0.32 * ipd), int(ny - 0.08 * ipd)), (int(cx + 0.32 * ipd), int(ny + 0.22 * ipd)), 1, -1)
+    for k in ("mouth_l", "mouth_r"):
+        cv2.circle(m, (int(kp[k][0]), int(kp[k][1])), int(0.2 * ipd), 1, -1)
+    polys = pp.get("polys")
+    for k in ("eye_l", "eye_r"):
+        if polys:
+            p = polys[k]
+            inner = p[np.argmin(np.abs(p[:, 0] - cx))]      # 眼睛輪廓最靠近鼻樑的點 = 內眼角
+        else:
+            e = kp[k]
+            inner = (e[0] + np.sign(cx - e[0]) * 0.25 * ipd, e[1])
+        cv2.circle(m, (int(inner[0]), int(inner[1])), int(0.16 * ipd), 1, -1)
+    if polys:   # 唇緣再多留一點距離
+        lips = np.zeros_like(m)
+        cv2.fillPoly(lips, [polys["lips"].astype(np.int32)], 1)
+        m |= cv2.dilate(lips, np.ones((int(0.14 * ipd) | 1,) * 2, np.uint8))
+    return m > 0
+
+
+def _spot_roi(pp):
+    """斑點的分析範圍 (VISIA 總覽畫面的青色框：額頭 + 鼻子 + 兩頰)。"""
+    m = np.zeros(pp["skin"].shape, bool)
+    for k in SPOT_ROI:
+        m |= pp["regions"][k] > 0
+    return m
+
+
 def detect_spots(pp):
-    """斑點：比周圍皮膚暗的小色塊 (曬斑、雀斑、痘疤、痣)。黑帽運算找局部暗點，再排除細長的(那是皺紋/毛髮)。"""
+    """斑點：和周圍膚色有明顯顏色差異的棕色或紅色小斑塊 (曬斑、雀斑、痣、痘疤、痘印)。仿 VISIA：
+      1. 色素分離 (chromophore.py)：黑色素圖 (棕) + 血紅素圖 (紅)。光學密度裡光照強弱是三通道等量變化，
+         被分到第三個成分 → 等於已經做了光照平整，陰影、皺紋凹陷、毛孔的暗影不會被當成斑點
+      2. 兩張圖各自找「比周圍明顯偏高」的地方 (局部 z > SPOT_Z)
+      3. 只在 VISIA 的 ROI 找 (額頭、眉間、鼻子、兩頰；SPOT_ROI)：眼角、黑眼圈、嘴角、下巴的
+         天生色差和鬍根不算進來
+      4. 留下小而不細長的塊 (排除皺紋、毛髮) → 依哪種色素偏高較多分成棕色 / 紅色斑點
+      5. 量化：斑點面積占 ROI 有效皮膚 %、個數 (棕色 / 紅色)
+    沒有色素方向檔時退回舊方法 (光照平整後的 L 通道黑帽運算)。"""
+    mh = chromophore.maps(pp)
+    skin = _core(pp)
+    if mh is None or skin.sum() < 500:
+        return _detect_spots_lab(pp)
+    valid = skin & ~chromophore.invalid_mask(pp, skin) & ~_spot_exclude(pp)
+    roi = valid & _spot_roi(pp)
+    if roi.sum() < 500:
+        roi = valid
+    mel = cv2.GaussianBlur(mh[0], (0, 0), 1.0)    # 壓掉感光雜訊 / JPEG 區塊
+    hem = cv2.GaussianBlur(mh[1], (0, 0), 1.0)
+    zm = _local_z(mel, valid, SPOT_SIGMA, SPOT_FLOOR[0])
+    zh = _local_z(hem, valid, SPOT_SIGMA, SPOT_FLOOR[1])
+    # 周圍基準與雜訊用整張臉的有效皮膚算，只在 ROI 裡找斑點
+    cand = ((zm > SPOT_Z) | (zh > SPOT_Z)) & roi
+    cand = cv2.morphologyEx(cand.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)) > 0
+    # 斑點多半是實心的圓塊；鼻翼溝 (天生較紅) 的月牙形、陰影邊緣的不規則形用實心度排除
+    mask, n = _filter_components(cand, 10, 900, max_ecc=0.93, min_solidity=SPOT_MIN_SOLIDITY)
+    lab_img = label(mask)
+    n_brown = n_red = 0
+    for r in regionprops(lab_img):
+        sel = lab_img == r.label
+        if zm[sel].mean() >= zh[sel].mean():
+            n_brown += 1
+        else:
+            n_red += 1
+    raw = 100 * mask.sum() / max(int(roi.sum()), 1)
+    return _pack("spots", raw, n, mask, pp["regions"],
+                 extra={"brown_count": n_brown, "red_count": n_red, "method": "chromophore"})
+
+
+def _detect_spots_lab(pp):
+    """舊方法：比周圍皮膚暗的小色塊。光照平整後的 L 通道黑帽運算，再排除細長的 (皺紋 / 毛髮)。"""
     skin = _core(pp)
     L = cv2.cvtColor(pp["face_flat"], cv2.COLOR_BGR2LAB)[..., 0]   # 光照平整後：陰影側的斑點對比不會被壓低
     bh =cv2.morphologyEx(L, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17)))
@@ -109,7 +204,7 @@ def detect_spots(pp):
     cand = cv2.morphologyEx(cand.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)) > 0
     mask, n = _filter_components(cand, 8, 900, max_ecc=0.93)
     raw = 100 * mask.sum() / max(skin.sum(), 1)
-    return _pack("spots", raw, n, mask, pp["regions"])
+    return _pack("spots", raw, n, mask, pp["regions"], extra={"method": "lab"})
 
 
 def detect_brown_spots(pp):
@@ -306,7 +401,8 @@ def feature_vector(results, pp):
         feats[f"{k}.count"] = r["count"]
         for reg, v in r["by_region"].items():
             feats[f"{k}.{reg}"] = v
-        for extra in ("pigment_unevenness", "inflamed_spots", "intensity", "diffuse_pct", "vessel_pct"):
+        for extra in ("pigment_unevenness", "inflamed_spots", "intensity", "diffuse_pct", "vessel_pct",
+                      "brown_count", "red_count"):
             if extra in r:
                 feats[f"{k}.{extra}"] = r[extra]
     skin = pp["skin"] > 0
