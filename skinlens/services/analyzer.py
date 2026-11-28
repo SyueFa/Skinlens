@@ -5,7 +5,10 @@ import hashlib
 import uuid
 import cv2
 import numpy as np
-from ..config import UPLOAD_DIR, PROC_DIR, HISTORY_DIR, MIN_PEERS
+import json
+from datetime import datetime
+from pathlib import Path
+from ..config import UPLOAD_DIR, PROC_DIR, HISTORY_DIR, MIN_PEERS, CONSENT_SAVE_DIR, BASE_DIR
 from ..db import subjects, images, analyses, now
 from ..analysis.preprocess import load_image, preprocess, apply_color, device_model
 from ..analysis import color
@@ -240,6 +243,29 @@ def strip_images(report):
     return r
 
 
+def save_capture_local(data, frames, sides, pp, results, report, device):
+    """把這次拍照的所有影像與分數存到 CONSENT_SAVE_DIR/capture_<時間>/ (本機測試、跨次比較用)：
+      still.jpg      分析用的照片 (拍照流程是閉眼照)
+      frame_N.jpg    睜眼影格 (眼白校色用)
+      side_N.jpg     左、右轉的側臉照片
+      scores.json    各指標分數、原始量測值、照片品質、裝置"""
+    root = Path(CONSENT_SAVE_DIR)
+    if not root.is_absolute():
+        root = BASE_DIR / root
+    d = root / f"capture_{datetime.now():%Y%m%d_%H%M%S}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "still.jpg").write_bytes(data)
+    for i, b in enumerate(frames or [], 1):
+        (d / f"frame_{i}.jpg").write_bytes(b)
+    for i, b in enumerate(sides or [], 1):
+        (d / f"side_{i}.jpg").write_bytes(b)
+    q = {k: v for k, v in pp["quality"].items() if isinstance(v, (int, float, str, list, dict, type(None)))}
+    info = {"device": device or pp["quality"].get("device"), "quality": q, "overall_score": report.get("overall_score"),
+            "results": {k: {"severity": r["severity"], "raw": r["raw"], "count": r["count"]} for k, r in results.items()}}
+    (d / "scores.json").write_text(json.dumps(info, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    return d
+
+
 def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=None, consent=False, user=None,
             frames=None, device=None, sides=None):
     """網站上傳分析。會員 → 存入歷史紀錄；勾選同意 → 照片另存訓練資料池。
@@ -251,7 +277,10 @@ def analyze(data: bytes, lighting="standard", age=None, gender=None, skin_type=N
         report["sides"] = analyze_sides(sides, ill)
 
     image_id = None
-    if consent:
+    if consent and CONSENT_SAVE_DIR:          # 本機測試：存到資料夾，不進資料庫
+        save_capture_local(data, frames, sides, pp, results, report, device)
+        consent = False
+    elif consent:
         image_id = store_training_image(data, pp, feats, lighting,
                                         subject_info={"age": age, "gender": gender, "skin_type": skin_type})
     analysis_id = None

@@ -17,6 +17,9 @@ UPLOAD_DIR = DATA_DIR / "uploads"        # 原始照片 (同意用於訓練者)
 PROC_DIR = DATA_DIR / "processed"        # 前處理後 (對齊/校色) 照片
 HISTORY_DIR = DATA_DIR / "history"       # 會員歷史紀錄縮圖
 MODEL_DIR = BASE_DIR / "models"          # 臉部偵測模型 + 訓練好的模型
+# 本機測試用：有設定時，勾選「同意」的照片改存到這個資料夾 (原圖、睜眼影格、側臉、分數)，不進資料庫。
+# app.py 的 HTTPS=1 (手機測試) 模式預設存到 informations/ (不進 git)
+CONSENT_SAVE_DIR = os.environ.get("CONSENT_SAVE_DIR") or None
 
 FACE_SIZE = 600       # 對齊後臉部影像寬度 (px)，所有指標都在這個尺度上計算，數值才可比較
 MIN_PEERS = 10        # 同齡層至少幾筆資料才計算百分位
